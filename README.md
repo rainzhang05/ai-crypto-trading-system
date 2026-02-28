@@ -189,8 +189,7 @@ All logs must allow full reconstruction of any trading hour.
 
 This system operates under strict governance.
 
-Governance files are located in:
-/governance
+Governance files are located in: **/governance**
 
 
 Includes:
