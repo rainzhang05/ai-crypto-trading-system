@@ -168,14 +168,23 @@ Backtest logic must match live trading logic exactly.
 
 ---
 
-## 7. Infrastructure
+# 7. Infrastructure (Google Cloud Platform)
 
-Cloud Provider: Microsoft Azure  
+Cloud Provider: **Google Cloud Platform (GCP)**
+
+Core Components:
+
+- **Cloud Run** – Containerized backend deployment
+- **Cloud SQL (PostgreSQL)** – Primary database
+- **Cloud Storage (GCS)** – Raw data & model artifact storage
+- **Artifact Registry** – Docker image registry
+- **Secret Manager** – API key management
+- **Cloud Scheduler** – Hourly execution trigger
+- **Cloud Logging & Monitoring** – Observability layer
+
 Containerization: Docker  
-Database: PostgreSQL + TimescaleDB  
-Model Registry: MLflow  
 Version Control: GitHub  
-CI/CD: GitHub Actions  
+CI/CD: GitHub Actions → GCP Deployment  
 Backend: FastAPI  
 Frontend: Next.js  
 
