@@ -1170,7 +1170,11 @@ def _execute_all(statements: Sequence[str]) -> None:
     """Execute an ordered sequence of SQL statements."""
 
     for statement in statements:
-        op.execute(statement)
+        try:
+            op.execute(statement)
+        except Exception:
+            logger.exception("Migration statement failed.")
+            raise
 
 
 def upgrade() -> None:
