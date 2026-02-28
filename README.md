@@ -1,1 +1,1 @@
-# ai-crypto-trading-system
+# AI Crypto Trading System
