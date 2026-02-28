@@ -131,12 +131,11 @@ class RiskHourlyState(Base):
         Index("idx_risk_hourly_source_run_id", "source_run_id"),
     )
 
-    run_mode: Mapped[str] = mapped_column(run_mode_enum, primary_key=True)
-    account_id: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
+    account_id: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     hour_ts_utc: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        primary_key=True,
     )
     portfolio_value: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     peak_portfolio_value: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
@@ -186,7 +185,11 @@ class RiskEvent(Base):
         ),
         ForeignKeyConstraint(
             ["run_mode", "account_id", "related_state_hour_ts_utc"],
-            ["risk_hourly_state.run_mode", "risk_hourly_state.account_id", "risk_hourly_state.hour_ts_utc"],
+            [
+                "risk_hourly_state.run_mode",
+                "risk_hourly_state.account_id",
+                "risk_hourly_state.hour_ts_utc",
+            ],
             name="fk_risk_event_risk_hourly_state",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
@@ -232,7 +235,7 @@ class RiskEvent(Base):
         ),
     )
 
-    risk_event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    risk_event_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
     account_id: Mapped[int] = mapped_column(
@@ -255,4 +258,8 @@ class RiskEvent(Base):
         nullable=False,
         server_default=text("'{}'::jsonb"),
     )
-    related_state_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    related_state_hour_ts_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    
