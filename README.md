@@ -1,11 +1,9 @@
-# AI Crypto Trading System
-
-## Production-Grade Quantitative Trading Engine  
+# Quantitative Crypto Trading System
 **All Models Active | Governance-Controlled | Capital Preservation First**
 
 ---
 
-# 1. Overview
+## 1. Overview
 
 The AI Crypto Trading System is a production-grade, fully quantitative cryptocurrency trading engine designed to operate on Kraken Spot markets.
 
@@ -31,7 +29,7 @@ It is a governed quantitative trading system.
 
 ---
 
-# 2. Trading Constraints
+## 2. Trading Constraints
 
 - Exchange: Kraken Spot
 - No leverage
@@ -51,11 +49,11 @@ All trades must exceed transaction costs before execution.
 
 ---
 
-# 3. Model Architecture
+## 3. Model Architecture
 
 All models are active from initial deployment.
 
-## 3.1 Tree-Based Models
+### 3.1 Tree-Based Models
 
 - XGBoost
 - LightGBM
@@ -64,7 +62,7 @@ All models are active from initial deployment.
 Purpose:
 Capture nonlinear relationships in tabular engineered features.
 
-## 3.2 Deep Learning Models
+### 3.2 Deep Learning Models
 
 - LSTM
 - Transformer
@@ -72,7 +70,7 @@ Capture nonlinear relationships in tabular engineered features.
 Purpose:
 Capture sequential temporal patterns in price movement.
 
-## 3.3 Regime Classifier
+### 3.3 Regime Classifier
 
 Identifies:
 
@@ -81,7 +79,7 @@ Identifies:
 - High-volatility regime
 - Crash regime
 
-## 3.4 Meta-Learner
+### 3.4 Meta-Learner
 
 Stacking ensemble that combines:
 
@@ -93,7 +91,7 @@ Final trade decisions are derived exclusively from meta-learner output.
 
 ---
 
-# 4. Feature Engineering
+## 4. Feature Engineering
 
 Features include:
 
@@ -119,28 +117,28 @@ All features:
 
 ---
 
-# 5. Risk Management
+## 5. Risk Management
 
 Capital preservation is the highest priority.
 
-## 5.1 Position Sizing
+### 5.1 Position Sizing
 
 Base Risk Fraction: 2% of Portfolio Value  
 Position sizing is volatility-adjusted.
 
-## 5.2 Drawdown Controls
+### 5.2 Drawdown Controls
 
 - 10% drawdown → reduce risk
 - 15% drawdown → reduce exposure
 - 20% drawdown → immediate halt
 
-## 5.3 Exposure Limits
+### 5.3 Exposure Limits
 
 - Maximum 10 concurrent positions
 - Maximum total exposure: 20%
 - Correlation cluster caps enforced
 
-## 5.4 Kill Switch
+### 5.4 Kill Switch
 
 Triggers include:
 
@@ -153,7 +151,7 @@ Kill switch prevents new entries and requires manual reactivation.
 
 ---
 
-# 6. Backtesting
+## 6. Backtesting
 
 Backtesting must:
 
@@ -170,7 +168,7 @@ Backtest logic must match live trading logic exactly.
 
 ---
 
-# 7. Infrastructure
+## 7. Infrastructure
 
 Cloud Provider: Microsoft Azure  
 Containerization: Docker  
@@ -185,7 +183,7 @@ All logs must allow full reconstruction of any trading hour.
 
 ---
 
-# 8. Governance Structure
+## 8. Governance Structure
 
 This system operates under strict governance.
 
@@ -206,11 +204,11 @@ No structural change is valid unless logged and reviewed.
 
 ---
 
-# 9. Tri-Agent Development Method
+## 9. Tri-Agent Development Method
 
 This project uses a structured three-agent development framework.
 
-## 9.1 Architect Agent
+### 9.1 Architect Agent
 
 Role:
 
@@ -227,7 +225,7 @@ Does not write large production code.
 
 ---
 
-## 9.2 Implementation Agent
+### 9.2 Implementation Agent
 
 Role:
 
@@ -243,7 +241,7 @@ Does not modify architecture.
 
 ---
 
-## 9.3 Auditor Agent
+### 9.3 Auditor Agent
 
 Role:
 
@@ -261,7 +259,7 @@ Assumes bugs exist until proven safe.
 
 ---
 
-# 10. Development Cycle
+## 10. Development Cycle
 
 Every module follows this sequence:
 
@@ -277,7 +275,7 @@ Role mixing is prohibited.
 
 ---
 
-# 11. Version Control Rules
+## 11. Version Control Rules
 
 - All changes committed via Git
 - Commit messages must describe financial impact
@@ -286,7 +284,7 @@ Role mixing is prohibited.
 
 ---
 
-# 12. Production Readiness Requirements
+## 12. Production Readiness Requirements
 
 Before live trading:
 
@@ -301,7 +299,7 @@ Live deployment begins with minimal capital allocation.
 
 ---
 
-# 13. Priority Order
+## 13. Priority Order
 
 When conflicts arise:
 
