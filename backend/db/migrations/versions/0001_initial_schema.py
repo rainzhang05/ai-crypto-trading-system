@@ -1047,6 +1047,26 @@ TIMESCALE_HYPERTABLE_DDL: tuple[str, ...] = (
         if_not_exists => TRUE
     );
     """,
+    """
+    SELECT create_hypertable(
+         'order_fill',
+         'fill_ts_utc',
+         'asset_id',
+         8,
+         chunk_time_interval => INTERVAL '14 days',
+         if_not_exists => TRUE
+     );
+     """,
+     """
+     SELECT create_hypertable(
+         'cash_ledger',
+         'event_ts_utc',
+         'account_id',
+         4,
+         chunk_time_interval => INTERVAL '30 days',
+         if_not_exists => TRUE
+     );
+     """,
 )
 
 TIMESCALE_COMPRESSION_DDL: tuple[str, ...] = (
@@ -1075,6 +1095,24 @@ TIMESCALE_COMPRESSION_DDL: tuple[str, ...] = (
     SET (timescaledb.compress, timescaledb.compress_segmentby = 'asset_id,horizon,run_mode', timescaledb.compress_orderby = 'hour_ts_utc DESC');
     """,
     "SELECT add_compression_policy('meta_learner_component', INTERVAL '14 days', if_not_exists => TRUE);",
+    """
+    ALTER TABLE order_fill
+    SET (
+        timescaledb.compress,
+        timescaledb.compress_segmentby = 'asset_id,account_id,run_mode',
+        timescaledb.compress_orderby = 'fill_ts_utc DESC'
+    );
+    """,
+    "SELECT add_compression_policy('order_fill', INTERVAL '14 days', if_not_exists => TRUE);",
+    """
+    ALTER TABLE cash_ledger
+    SET (
+        timescaledb.compress,
+        timescaledb.compress_segmentby = 'account_id,run_mode',
+        timescaledb.compress_orderby = 'event_ts_utc DESC'
+    );
+    """,
+    "SELECT add_compression_policy('cash_ledger', INTERVAL '30 days', if_not_exists => TRUE);",
     """
     ALTER TABLE position_hourly_state
     SET (timescaledb.compress, timescaledb.compress_segmentby = 'account_id,asset_id,run_mode', timescaledb.compress_orderby = 'hour_ts_utc DESC');
@@ -1218,6 +1256,10 @@ def downgrade() -> None:
             "SELECT remove_compression_policy('feature_snapshot', if_exists => TRUE);",
             "SELECT remove_compression_policy('order_book_snapshot', if_exists => TRUE);",
             "SELECT remove_compression_policy('market_ohlcv_hourly', if_exists => TRUE);",
+            "SELECT remove_compression_policy('cash_ledger', if_exists => TRUE);",
+            "SELECT remove_compression_policy('order_fill', if_exists => TRUE);",
+            "ALTER TABLE risk_hourly_state SET (timescaledb.compress = false);",
+            "ALTER TABLE portfolio_hourly_state SET (timescaledb.compress = false);",
             "DROP TABLE IF EXISTS backtest_fold_result;",
             "DROP TABLE IF EXISTS risk_event;",
             "DROP TABLE IF EXISTS position_hourly_state;",

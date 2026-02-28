@@ -9,7 +9,6 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
-    CHAR,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -109,7 +108,7 @@ class OrderRequest(Base):
         ),
     )
 
-    order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     signal_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(
@@ -250,7 +249,7 @@ class OrderFill(Base):
         Index("idx_order_fill_order_id", "order_id"),
     )
 
-    fill_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    fill_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     order_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
@@ -354,7 +353,7 @@ class PositionLot(Base):
         Index("idx_position_lot_remaining_qty", "remaining_qty"),
     )
 
-    lot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    lot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     open_fill_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
@@ -463,7 +462,7 @@ class ExecutedTrade(Base):
         Index("idx_executed_trade_lot_id", "lot_id"),
     )
 
-    trade_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    trade_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     lot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
@@ -554,7 +553,7 @@ class CashLedger(Base):
     ledger_id: Mapped[int] = mapped_column(
         BigInteger,
         Identity(always=True),
-        primary_key=True,
+        nullable=False,
     )
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
@@ -575,3 +574,4 @@ class CashLedger(Base):
     ref_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     delta_cash: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     balance_after: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    

@@ -37,16 +37,16 @@ class RunContext(Base):
     __table_args__ = (
         PrimaryKeyConstraint("run_id", name="pk_run_context"),
         UniqueConstraint(
-            "account_id",
-            "run_mode",
-            "hour_ts_utc",
-            name="uq_run_context_account_mode_hour",
+        "account_id",
+        "run_mode",
+        "hour_ts_utc",
+        name="uq_run_context_account_mode_hour",
         ),
         UniqueConstraint(
-            "run_id",
-            "run_mode",
-            "hour_ts_utc",
-            name="uq_run_context_run_mode_hour",
+        "run_id",
+        "run_mode",
+        "hour_ts_utc",
+        name="uq_run_context_run_mode_hour",
         ),
         CheckConstraint(
             "date_trunc('hour', hour_ts_utc) = hour_ts_utc",
@@ -75,7 +75,7 @@ class RunContext(Base):
         ),
     )
 
-    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     account_id: Mapped[int] = mapped_column(
         SmallInteger,
         ForeignKey(
