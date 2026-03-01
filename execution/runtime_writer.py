@@ -449,8 +449,17 @@ class AppendOnlyRuntimeWriter:
         severity: str,
         reason_code: str,
         detail: str,
+        details: Optional[Mapping[str, Any]] = None,
     ) -> RiskEventRow:
-        details_payload = json.dumps({"detail": detail}, sort_keys=True, separators=(",", ":"))
+        event_details: dict[str, Any] = {"detail": detail}
+        if details is not None:
+            event_details.update(dict(details))
+        details_payload = json.dumps(
+            event_details,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
         risk_event_id = stable_uuid(
             "risk_event",
             (

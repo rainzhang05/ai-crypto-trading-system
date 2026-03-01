@@ -41,6 +41,7 @@ class _FakeDB:
                     "hour_ts_utc": hour,
                     "horizon": "H1",
                     "model_version_id": 10,
+                    "prob_up": Decimal("0.6500000000"),
                     "expected_return": Decimal("0.020000000000000000"),
                     "upstream_hash": "d" * 64,
                     "row_hash": "5" * 64,
@@ -76,6 +77,7 @@ class _FakeDB:
                     "hour_ts_utc": hour,
                     "source_run_id": run_id,
                     "portfolio_value": Decimal("10000"),
+                    "base_risk_fraction": Decimal("0.0200000000"),
                     "max_total_exposure_pct": Decimal("0.2"),
                     "max_cluster_exposure_pct": Decimal("0.08"),
                     "halt_new_entries": False,
@@ -111,6 +113,19 @@ class _FakeDB:
                     "row_hash": "i" * 64,
                 }
             ],
+            "position_hourly_state": [
+                {
+                    "run_mode": "LIVE",
+                    "account_id": 1,
+                    "asset_id": 1,
+                    "hour_ts_utc": hour,
+                    "source_run_id": run_id,
+                    "quantity": Decimal("1.000000000000000000"),
+                    "exposure_pct": Decimal("0.0100000000"),
+                    "unrealized_pnl": Decimal("0"),
+                    "row_hash": "p" * 64,
+                }
+            ],
             "model_activation_gate": [
                 {
                     "activation_id": 11,
@@ -135,6 +150,48 @@ class _FakeDB:
                     "cost_profile_id": 2,
                     "fee_rate": Decimal("0.004"),
                     "slippage_param_hash": "a" * 64,
+                }
+            ],
+            "risk_profile": [
+                {
+                    "profile_version": "default_v1",
+                    "total_exposure_mode": "PERCENT_OF_PV",
+                    "max_total_exposure_pct": Decimal("0.2000000000"),
+                    "max_total_exposure_amount": None,
+                    "cluster_exposure_mode": "PERCENT_OF_PV",
+                    "max_cluster_exposure_pct": Decimal("0.0800000000"),
+                    "max_cluster_exposure_amount": None,
+                    "max_concurrent_positions": 10,
+                    "severe_loss_drawdown_trigger": Decimal("0.2000000000"),
+                    "volatility_feature_id": 9001,
+                    "volatility_target": Decimal("0.0200000000"),
+                    "volatility_scale_floor": Decimal("0.5000000000"),
+                    "volatility_scale_ceiling": Decimal("1.5000000000"),
+                    "hold_min_expected_return": Decimal("0"),
+                    "exit_expected_return_threshold": Decimal("-0.005000000000000000"),
+                    "recovery_hold_prob_up_threshold": Decimal("0.6000000000"),
+                    "recovery_exit_prob_up_threshold": Decimal("0.3500000000"),
+                    "derisk_fraction": Decimal("0.5000000000"),
+                    "signal_persistence_required": 1,
+                    "row_hash": "u" * 64,
+                }
+            ],
+            "account_risk_profile_assignment": [
+                {
+                    "assignment_id": 1,
+                    "profile_version": "default_v1",
+                    "account_id": 1,
+                    "effective_from_utc": hour - timedelta(days=1),
+                    "effective_to_utc": None,
+                    "row_hash": "v" * 64,
+                }
+            ],
+            "feature_snapshot": [
+                {
+                    "asset_id": 1,
+                    "feature_id": 9001,
+                    "feature_value": Decimal("0.0200000000"),
+                    "row_hash": "w" * 64,
                 }
             ],
             "cash_ledger": [],
@@ -169,6 +226,20 @@ class _FakeDB:
             return list(self.data["asset_cluster_membership"])
         if "from cost_profile" in q:
             return list(self.data["cost_profile"])
+        if "from account_risk_profile_assignment" in q:
+            assignments = list(self.data["account_risk_profile_assignment"])
+            profiles = {row["profile_version"]: row for row in self.data["risk_profile"]}
+            joined: list[dict[str, Any]] = []
+            for assignment in assignments:
+                profile = profiles.get(assignment["profile_version"])
+                if profile is None:
+                    continue
+                joined.append({**assignment, **profile})
+            return joined
+        if "from feature_snapshot" in q:
+            return list(self.data["feature_snapshot"])
+        if "from position_hourly_state" in q:
+            return list(self.data["position_hourly_state"])
         if "from cash_ledger" in q:
             return []
         if "from model_training_window" in q:

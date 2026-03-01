@@ -294,6 +294,64 @@ def insert_runtime_fixture(
         },
     )
 
+    feature_definition_row = db.fetch_one(
+        """
+        INSERT INTO feature_definition (
+            feature_name, feature_group, lookback_hours, value_dtype, feature_version
+        ) VALUES (
+            :feature_name, 'RISK_VOLATILITY', 24, 'NUMERIC', 'phase3_v1'
+        )
+        RETURNING feature_id
+        """,
+        {"feature_name": f"REALIZED_VOL_{seed.upper()}"},
+    )
+    if feature_definition_row is None:
+        raise RuntimeError("Failed to insert feature_definition fixture.")
+    volatility_feature_id = int(feature_definition_row["feature_id"])
+
+    profile_version = f"profile_{seed.lower()}"
+    db.execute(
+        """
+        INSERT INTO risk_profile (
+            profile_version, total_exposure_mode, max_total_exposure_pct, max_total_exposure_amount,
+            cluster_exposure_mode, max_cluster_exposure_pct, max_cluster_exposure_amount,
+            max_concurrent_positions, severe_loss_drawdown_trigger, volatility_feature_id,
+            volatility_target, volatility_scale_floor, volatility_scale_ceiling,
+            hold_min_expected_return, exit_expected_return_threshold,
+            recovery_hold_prob_up_threshold, recovery_exit_prob_up_threshold,
+            derisk_fraction, signal_persistence_required, row_hash
+        ) VALUES (
+            :profile_version, 'PERCENT_OF_PV', 0.2000000000, NULL,
+            'PERCENT_OF_PV', 0.0800000000, NULL,
+            10, 0.2000000000, :volatility_feature_id,
+            0.0200000000, 0.5000000000, 1.5000000000,
+            0.000000000000000000, -0.005000000000000000,
+            0.6000000000, 0.3500000000,
+            0.5000000000, 1, :row_hash
+        )
+        """,
+        {
+            "profile_version": profile_version,
+            "volatility_feature_id": volatility_feature_id,
+            "row_hash": "z" * 64,
+        },
+    )
+    db.execute(
+        """
+        INSERT INTO account_risk_profile_assignment (
+            account_id, profile_version, effective_from_utc, effective_to_utc, row_hash
+        ) VALUES (
+            :account_id, :profile_version, :effective_from_utc, NULL, :row_hash
+        )
+        """,
+        {
+            "account_id": account_id,
+            "profile_version": profile_version,
+            "effective_from_utc": hour - timedelta(days=1),
+            "row_hash": "y" * 64,
+        },
+    )
+
     db.execute(
         """
         INSERT INTO replay_manifest (
@@ -335,6 +393,27 @@ def insert_runtime_fixture(
             "source_run_id": str(run_id),
             "reconciliation_hash": "g" * 64,
             "row_hash": "h" * 64,
+        },
+    )
+
+    db.execute(
+        """
+        INSERT INTO position_hourly_state (
+            run_mode, account_id, asset_id, hour_ts_utc, quantity, avg_cost, mark_price,
+            market_value, unrealized_pnl, realized_pnl_cum, exposure_pct, source_run_id, row_hash
+        ) VALUES (
+            :run_mode, :account_id, :asset_id, :hour_ts_utc, 1.000000000000000000, 100.000000000000000000,
+            100.000000000000000000, 100.000000000000000000, 0.000000000000000000,
+            0.000000000000000000, 0.0100000000, :source_run_id, :row_hash
+        )
+        """,
+        {
+            "run_mode": run_mode,
+            "account_id": account_id,
+            "asset_id": asset_id,
+            "hour_ts_utc": hour,
+            "source_run_id": str(run_id),
+            "row_hash": "x" * 64,
         },
     )
 
@@ -502,6 +581,29 @@ def insert_runtime_fixture(
             "row_hash": "1" * 64,
             "account_id": account_id,
             "activation_id": activation_id,
+        },
+    )
+
+    db.execute(
+        """
+        INSERT INTO feature_snapshot (
+            run_id, run_mode, asset_id, hour_ts_utc, feature_id, feature_value,
+            source_window_start_utc, source_window_end_utc, input_data_hash, row_hash
+        ) VALUES (
+            :run_id, :run_mode, :asset_id, :hour_ts_utc, :feature_id, 0.0200000000,
+            :source_window_start_utc, :source_window_end_utc, :input_data_hash, :row_hash
+        )
+        """,
+        {
+            "run_id": str(run_id),
+            "run_mode": run_mode,
+            "asset_id": asset_id,
+            "hour_ts_utc": hour,
+            "feature_id": volatility_feature_id,
+            "source_window_start_utc": hour - timedelta(hours=24),
+            "source_window_end_utc": hour,
+            "input_data_hash": "w" * 64,
+            "row_hash": "v" * 64,
         },
     )
 

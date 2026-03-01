@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Protocol, Sequence
@@ -19,12 +19,16 @@ from execution.deterministic_context import (
 from execution.risk_runtime import (
     RiskViolation,
     RuntimeRiskProfile,
+    compute_volatility_adjusted_fraction,
     enforce_capital_preservation,
     enforce_cluster_cap,
     enforce_cross_account_isolation,
     enforce_position_count_cap,
     enforce_runtime_risk_gate,
     enforce_severe_loss_entry_gate,
+    evaluate_adaptive_horizon_action,
+    evaluate_risk_state_machine,
+    evaluate_severe_loss_recovery_action,
 )
 from execution.runtime_writer import (
     AppendOnlyRuntimeWriter,
@@ -219,6 +223,32 @@ def _plan_runtime_artifacts(
             cluster_state_hash=cluster_hash,
         )
 
+        adaptive_action_eval = evaluate_adaptive_horizon_action(
+            candidate_action=decision.action,
+            prediction=prediction,
+            context=context,
+            risk_profile=risk_profile,
+        )
+        severe_recovery_eval = evaluate_severe_loss_recovery_action(
+            candidate_action=adaptive_action_eval.action,
+            prediction=prediction,
+            context=context,
+            risk_profile=risk_profile,
+        )
+        sizing_eval = compute_volatility_adjusted_fraction(
+            action=severe_recovery_eval.action,
+            candidate_fraction=decision.position_size_fraction,
+            asset_id=prediction.asset_id,
+            context=context,
+            risk_profile=risk_profile,
+        )
+        adjusted_decision = replace(
+            decision,
+            action=severe_recovery_eval.action,
+            direction="LONG" if severe_recovery_eval.action == "ENTER" else "FLAT",
+            position_size_fraction=sizing_eval.adjusted_fraction,
+        )
+
         activation = (
             context.find_activation(prediction.activation_id)
             if prediction.activation_id is not None
@@ -235,7 +265,7 @@ def _plan_runtime_artifacts(
             context=context,
             prediction=prediction,
             regime=regime,
-            decision=decision,
+            decision=adjusted_decision,
             action_override=None,
         )
 
@@ -297,7 +327,7 @@ def _plan_runtime_artifacts(
             context=context,
             prediction=prediction,
             regime=regime,
-            decision=decision,
+            decision=adjusted_decision,
             action_override=action_override,
         )
         trade_signals.append(final_signal)
@@ -328,6 +358,43 @@ def _plan_runtime_artifacts(
                         detail=violation.detail,
                     )
                 )
+
+        risk_state_eval = evaluate_risk_state_machine(context=context, risk_profile=risk_profile)
+        action_reason_code = (
+            severe_recovery_eval.reason_code
+            if severe_recovery_eval.reason_code != "NO_SEVERE_LOSS_RECOVERY"
+            else adaptive_action_eval.reason_code
+        )
+        risk_events.append(
+            writer.build_risk_event_row(
+                context=context,
+                event_type="DECISION_TRACE",
+                severity="LOW",
+                reason_code=action_reason_code,
+                detail=f"Decision trace for asset_id={prediction.asset_id} action={final_signal.action}.",
+                details={
+                    "profile_version": context.risk_profile.profile_version,
+                    "risk_state_mode": risk_state_eval.state,
+                    "final_action": final_signal.action,
+                    "action_reason_code": action_reason_code,
+                    "adaptive_reason_code": adaptive_action_eval.reason_code,
+                    "severe_recovery_reason_code": severe_recovery_eval.reason_code,
+                    "volatility_reason_code": sizing_eval.reason_code,
+                    "base_fraction": str(sizing_eval.base_fraction),
+                    "observed_volatility": (
+                        str(sizing_eval.observed_volatility)
+                        if sizing_eval.observed_volatility is not None
+                        else None
+                    ),
+                    "volatility_scale": str(sizing_eval.volatility_scale),
+                    "adjusted_fraction": str(sizing_eval.adjusted_fraction),
+                    "derisk_fraction": str(context.risk_profile.derisk_fraction),
+                    "total_exposure_mode": context.risk_profile.total_exposure_mode,
+                    "cluster_exposure_mode": context.risk_profile.cluster_exposure_mode,
+                    "max_concurrent_positions": context.risk_profile.max_concurrent_positions,
+                },
+            )
+        )
 
     return RuntimeWriteResult(
         trade_signals=tuple(trade_signals),

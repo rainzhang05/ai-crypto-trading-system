@@ -174,7 +174,7 @@ Status:
 
 ---
 
-## PHASE 3 — RISK ENGINE RUNTIME IMPLEMENTATION
+## PHASE 3 — RISK ENGINE RUNTIME IMPLEMENTATION ✅ COMPLETED
 
 Implement:
 - Drawdown tier logic
@@ -191,6 +191,14 @@ Runtime must exactly match schema invariants.
 Phase 3 strategy/risk runtime delivery must implement:
 
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+
+Status:
+- ✅ Governed `risk_profile` + `account_risk_profile_assignment` persistence implemented.
+- ✅ Deterministic context loading extended with profile, volatility features, and positions.
+- ✅ Volatility-adjusted sizing runtime implemented with deterministic fallback behavior.
+- ✅ Adaptive horizon + severe-loss recovery intent routing integrated into planner/runtime flow.
+- ✅ Decision-trace risk-event evidence wiring implemented per signal.
+- ✅ Phase 3 governance SQL validation gate implemented and wired into clean-room pipeline.
 
 ---
 
@@ -422,13 +430,13 @@ Project is considered complete when:
 # 7. CURRENT POSITION
 
 Active Phase:
-Phase 3 — Risk Engine Runtime Implementation (Ready to Start)
+Phase 4 — Order Lifecycle Engine (Ready to Start)
 
 Blockers:
-- None on deterministic core, runtime validation gates, or replay harness closure.
-- Phase 2 closure complete; Phase 3 execution can begin.
+- None on deterministic core, replay harness closure, or Phase 3 runtime completion.
+- Phase 3 closure complete; Phase 4 execution can begin.
 
-Deterministic core, runtime, and replay harness (Phase 1A/1B/1C/1D/2) are structurally complete and validated for Phase 3 entry.
+Deterministic core, replay harness, and governed Phase 3 runtime (Phase 1A/1B/1C/1D/2/3) are structurally complete and validated for Phase 4 entry.
 
 ---
 

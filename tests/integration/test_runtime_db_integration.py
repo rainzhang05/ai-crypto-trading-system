@@ -42,12 +42,12 @@ def test_execute_hour_success_and_replay_parity(runtime_db: PsycopgRuntimeDB) ->
 
     assert len(result.trade_signals) == 1
     assert len(result.order_requests) == 1
-    assert len(result.risk_events) == 0
+    assert len(result.risk_events) == 1
     assert report.mismatch_count == 0
 
     assert _count_rows(runtime_db, "trade_signal", str(fixture.run_id)) == 1
     assert _count_rows(runtime_db, "order_request", str(fixture.run_id)) == 1
-    assert _count_rows(runtime_db, "risk_event", str(fixture.run_id)) == 0
+    assert _count_rows(runtime_db, "risk_event", str(fixture.run_id)) == 1
 
     hash_row = runtime_db.fetch_one(
         """

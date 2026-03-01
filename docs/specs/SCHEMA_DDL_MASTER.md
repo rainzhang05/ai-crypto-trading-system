@@ -576,6 +576,87 @@ CREATE TABLE risk_hourly_state (
 );
 ```
 
+#### `risk_profile`
+```sql
+CREATE TABLE risk_profile (
+    profile_version TEXT NOT NULL,
+    total_exposure_mode TEXT NOT NULL,
+    max_total_exposure_pct NUMERIC(12,10),
+    max_total_exposure_amount NUMERIC(38,18),
+    cluster_exposure_mode TEXT NOT NULL,
+    max_cluster_exposure_pct NUMERIC(12,10),
+    max_cluster_exposure_amount NUMERIC(38,18),
+    max_concurrent_positions INTEGER NOT NULL,
+    severe_loss_drawdown_trigger NUMERIC(12,10) NOT NULL,
+    volatility_feature_id INTEGER NOT NULL,
+    volatility_target NUMERIC(12,10) NOT NULL,
+    volatility_scale_floor NUMERIC(12,10) NOT NULL,
+    volatility_scale_ceiling NUMERIC(12,10) NOT NULL,
+    hold_min_expected_return NUMERIC(38,18) NOT NULL,
+    exit_expected_return_threshold NUMERIC(38,18) NOT NULL,
+    recovery_hold_prob_up_threshold NUMERIC(12,10) NOT NULL,
+    recovery_exit_prob_up_threshold NUMERIC(12,10) NOT NULL,
+    derisk_fraction NUMERIC(12,10) NOT NULL,
+    signal_persistence_required INTEGER NOT NULL,
+    row_hash CHAR(64) NOT NULL,
+    CONSTRAINT pk_risk_profile PRIMARY KEY (profile_version),
+    CONSTRAINT ck_risk_profile_total_mode CHECK (total_exposure_mode IN ('PERCENT_OF_PV', 'ABSOLUTE_AMOUNT')),
+    CONSTRAINT ck_risk_profile_cluster_mode CHECK (cluster_exposure_mode IN ('PERCENT_OF_PV', 'ABSOLUTE_AMOUNT')),
+    CONSTRAINT ck_risk_profile_total_mode_value_match CHECK (
+        (total_exposure_mode = 'PERCENT_OF_PV' AND max_total_exposure_pct IS NOT NULL AND max_total_exposure_amount IS NULL) OR
+        (total_exposure_mode = 'ABSOLUTE_AMOUNT' AND max_total_exposure_amount IS NOT NULL AND max_total_exposure_pct IS NULL)
+    ),
+    CONSTRAINT ck_risk_profile_cluster_mode_value_match CHECK (
+        (cluster_exposure_mode = 'PERCENT_OF_PV' AND max_cluster_exposure_pct IS NOT NULL AND max_cluster_exposure_amount IS NULL) OR
+        (cluster_exposure_mode = 'ABSOLUTE_AMOUNT' AND max_cluster_exposure_amount IS NOT NULL AND max_cluster_exposure_pct IS NULL)
+    ),
+    CONSTRAINT ck_risk_profile_max_positions_nonneg CHECK (max_concurrent_positions >= 0),
+    CONSTRAINT ck_risk_profile_severe_loss_trigger_range CHECK (
+        severe_loss_drawdown_trigger >= 0 AND severe_loss_drawdown_trigger <= 1
+    ),
+    CONSTRAINT ck_risk_profile_volatility_target_pos CHECK (volatility_target > 0),
+    CONSTRAINT ck_risk_profile_volatility_scale_range CHECK (
+        volatility_scale_floor > 0 AND volatility_scale_ceiling >= volatility_scale_floor
+    ),
+    CONSTRAINT ck_risk_profile_recovery_hold_prob_range CHECK (
+        recovery_hold_prob_up_threshold >= 0 AND recovery_hold_prob_up_threshold <= 1
+    ),
+    CONSTRAINT ck_risk_profile_recovery_exit_prob_range CHECK (
+        recovery_exit_prob_up_threshold >= 0 AND recovery_exit_prob_up_threshold <= 1
+    ),
+    CONSTRAINT ck_risk_profile_derisk_fraction_range CHECK (derisk_fraction >= 0 AND derisk_fraction <= 1),
+    CONSTRAINT ck_risk_profile_signal_persistence_min CHECK (signal_persistence_required >= 1),
+    CONSTRAINT fk_risk_profile_volatility_feature FOREIGN KEY (volatility_feature_id)
+        REFERENCES feature_definition (feature_id)
+        ON UPDATE RESTRICT
+        ON DELETE RESTRICT
+);
+```
+
+#### `account_risk_profile_assignment`
+```sql
+CREATE TABLE account_risk_profile_assignment (
+    assignment_id BIGINT GENERATED ALWAYS AS IDENTITY,
+    account_id SMALLINT NOT NULL,
+    profile_version TEXT NOT NULL,
+    effective_from_utc TIMESTAMPTZ NOT NULL,
+    effective_to_utc TIMESTAMPTZ,
+    row_hash CHAR(64) NOT NULL,
+    CONSTRAINT pk_account_risk_profile_assignment PRIMARY KEY (assignment_id),
+    CONSTRAINT ck_account_risk_profile_assignment_window CHECK (
+        effective_to_utc IS NULL OR effective_to_utc > effective_from_utc
+    ),
+    CONSTRAINT fk_account_risk_profile_assignment_account FOREIGN KEY (account_id)
+        REFERENCES account (account_id)
+        ON UPDATE RESTRICT
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_account_risk_profile_assignment_profile FOREIGN KEY (profile_version)
+        REFERENCES risk_profile (profile_version)
+        ON UPDATE RESTRICT
+        ON DELETE RESTRICT
+);
+```
+
 #### `trade_signal`
 ```sql
 CREATE TABLE trade_signal (

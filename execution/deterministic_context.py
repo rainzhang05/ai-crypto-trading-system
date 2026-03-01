@@ -72,6 +72,7 @@ class PredictionState:
     hour_ts_utc: datetime
     horizon: str
     model_version_id: int
+    prob_up: Decimal
     expected_return: Decimal
     upstream_hash: str
     row_hash: str
@@ -123,6 +124,7 @@ class RiskState:
     portfolio_value: Decimal
     drawdown_pct: Decimal
     drawdown_tier: str
+    base_risk_fraction: Decimal
     max_concurrent_positions: int
     max_total_exposure_pct: Decimal
     max_cluster_exposure_pct: Decimal
@@ -186,6 +188,51 @@ class ClusterMembershipState:
 
 
 @dataclass(frozen=True)
+class RiskProfileState:
+    profile_version: str
+    total_exposure_mode: str
+    max_total_exposure_pct: Optional[Decimal]
+    max_total_exposure_amount: Optional[Decimal]
+    cluster_exposure_mode: str
+    max_cluster_exposure_pct: Optional[Decimal]
+    max_cluster_exposure_amount: Optional[Decimal]
+    max_concurrent_positions: int
+    severe_loss_drawdown_trigger: Decimal
+    volatility_feature_id: int
+    volatility_target: Decimal
+    volatility_scale_floor: Decimal
+    volatility_scale_ceiling: Decimal
+    hold_min_expected_return: Decimal
+    exit_expected_return_threshold: Decimal
+    recovery_hold_prob_up_threshold: Decimal
+    recovery_exit_prob_up_threshold: Decimal
+    derisk_fraction: Decimal
+    signal_persistence_required: int
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class VolatilityFeatureState:
+    asset_id: int
+    feature_id: int
+    feature_value: Decimal
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class PositionState:
+    run_mode: str
+    account_id: int
+    asset_id: int
+    hour_ts_utc: datetime
+    source_run_id: UUID
+    quantity: Decimal
+    exposure_pct: Decimal
+    unrealized_pnl: Decimal
+    row_hash: str
+
+
+@dataclass(frozen=True)
 class ExecutionContext:
     """Immutable context used by deterministic runtime execution."""
 
@@ -200,6 +247,9 @@ class ExecutionContext:
     activation_records: tuple[ActivationRecord, ...]
     memberships: tuple[ClusterMembershipState, ...]
     cost_profile: CostProfileState
+    risk_profile: RiskProfileState
+    volatility_features: tuple[VolatilityFeatureState, ...]
+    positions: tuple[PositionState, ...]
 
     def find_training_window(self, training_window_id: int) -> Optional[TrainingWindowState]:
         for window in self.training_windows:
@@ -231,6 +281,18 @@ class ExecutionContext:
                 return cluster_state
         return None
 
+    def find_volatility_feature(self, asset_id: int) -> Optional[VolatilityFeatureState]:
+        for feature_state in self.volatility_features:
+            if feature_state.asset_id == asset_id:
+                return feature_state
+        return None
+
+    def find_position(self, asset_id: int) -> Optional[PositionState]:
+        for position in self.positions:
+            if position.asset_id == asset_id:
+                return position
+        return None
+
 
 class DeterministicContextBuilder:
     """Construct and validate deterministic runtime execution context."""
@@ -257,6 +319,15 @@ class DeterministicContextBuilder:
         activations = self._load_activation_records(predictions, regimes)
         memberships = self._load_memberships(predictions, hour_ts_utc)
         cost_profile = self._load_cost_profile(hour_ts_utc)
+        risk_profile = self._load_risk_profile(account_id=account_id, hour_ts_utc=hour_ts_utc)
+        volatility_features = self._load_volatility_features(
+            run_id=run_id,
+            run_mode=normalized_mode,
+            hour_ts_utc=hour_ts_utc,
+            predictions=predictions,
+            volatility_feature_id=risk_profile.volatility_feature_id,
+        )
+        positions = self._load_positions(run_id, account_id, normalized_mode, hour_ts_utc)
 
         context = ExecutionContext(
             run_context=run_ctx,
@@ -270,6 +341,9 @@ class DeterministicContextBuilder:
             activation_records=activations,
             memberships=memberships,
             cost_profile=cost_profile,
+            risk_profile=risk_profile,
+            volatility_features=volatility_features,
+            positions=positions,
         )
         self._validate_context(context)
         return context
@@ -326,6 +400,19 @@ class DeterministicContextBuilder:
         if context.prior_economic_state is not None and context.prior_economic_state.ledger_seq > 1:
             if not context.prior_economic_state.prev_ledger_hash:
                 raise DeterministicAbortError("Prior economic state has broken ledger hash continuity.")
+
+        if context.risk_profile.total_exposure_mode not in {"PERCENT_OF_PV", "ABSOLUTE_AMOUNT"}:
+            raise DeterministicAbortError("Unsupported total_exposure_mode in risk_profile.")
+        if context.risk_profile.cluster_exposure_mode not in {"PERCENT_OF_PV", "ABSOLUTE_AMOUNT"}:
+            raise DeterministicAbortError("Unsupported cluster_exposure_mode in risk_profile.")
+        if context.risk_profile.signal_persistence_required < 1:
+            raise DeterministicAbortError("risk_profile signal_persistence_required must be >= 1.")
+        if context.risk_profile.volatility_scale_floor > context.risk_profile.volatility_scale_ceiling:
+            raise DeterministicAbortError("risk_profile volatility scale floor/ceiling invalid.")
+
+        for feature_state in context.volatility_features:
+            if feature_state.feature_id != context.risk_profile.volatility_feature_id:
+                raise DeterministicAbortError("Configured volatility_feature_id mismatch in feature_snapshot.")
 
     def _validate_prediction_lineage(self, prediction: PredictionState, context: ExecutionContext) -> None:
         if context.run_context.run_mode == "BACKTEST":
@@ -450,7 +537,7 @@ class DeterministicContextBuilder:
         rows = self._db.fetch_all(
             """
             SELECT run_id, account_id, run_mode, asset_id, hour_ts_utc, horizon,
-                   model_version_id, expected_return, upstream_hash, row_hash,
+                   model_version_id, prob_up, expected_return, upstream_hash, row_hash,
                    training_window_id, lineage_backtest_run_id, lineage_fold_index,
                    lineage_horizon, activation_id
             FROM model_prediction
@@ -478,6 +565,7 @@ class DeterministicContextBuilder:
                     hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
                     horizon=str(row["horizon"]),
                     model_version_id=int(row["model_version_id"]),
+                    prob_up=_as_decimal(row["prob_up"]),
                     expected_return=_as_decimal(row["expected_return"]),
                     upstream_hash=str(row["upstream_hash"]),
                     row_hash=str(row["row_hash"]),
@@ -565,7 +653,7 @@ class DeterministicContextBuilder:
         row = self._db.fetch_one(
             """
             SELECT run_mode, account_id, hour_ts_utc, source_run_id, portfolio_value,
-                   drawdown_pct, drawdown_tier, max_concurrent_positions,
+                   drawdown_pct, drawdown_tier, base_risk_fraction, max_concurrent_positions,
                    max_total_exposure_pct, max_cluster_exposure_pct, halt_new_entries,
                    kill_switch_active, state_hash, row_hash
             FROM risk_hourly_state
@@ -595,6 +683,11 @@ class DeterministicContextBuilder:
                 else Decimal("0")
             ),
             drawdown_tier=str(row["drawdown_tier"]) if row.get("drawdown_tier") is not None else "NORMAL",
+            base_risk_fraction=(
+                _as_decimal(row["base_risk_fraction"])
+                if row.get("base_risk_fraction") is not None
+                else Decimal("0.0200000000")
+            ),
             max_concurrent_positions=(
                 int(row["max_concurrent_positions"])
                 if row.get("max_concurrent_positions") is not None
@@ -863,3 +956,170 @@ class DeterministicContextBuilder:
             fee_rate=_as_decimal(row["fee_rate"]),
             slippage_param_hash=str(row["slippage_param_hash"]),
         )
+
+    def _load_risk_profile(
+        self,
+        account_id: int,
+        hour_ts_utc: datetime,
+    ) -> RiskProfileState:
+        rows = self._db.fetch_all(
+            """
+            SELECT
+                a.assignment_id,
+                p.profile_version,
+                p.total_exposure_mode,
+                p.max_total_exposure_pct,
+                p.max_total_exposure_amount,
+                p.cluster_exposure_mode,
+                p.max_cluster_exposure_pct,
+                p.max_cluster_exposure_amount,
+                p.max_concurrent_positions,
+                p.severe_loss_drawdown_trigger,
+                p.volatility_feature_id,
+                p.volatility_target,
+                p.volatility_scale_floor,
+                p.volatility_scale_ceiling,
+                p.hold_min_expected_return,
+                p.exit_expected_return_threshold,
+                p.recovery_hold_prob_up_threshold,
+                p.recovery_exit_prob_up_threshold,
+                p.derisk_fraction,
+                p.signal_persistence_required,
+                p.row_hash
+            FROM account_risk_profile_assignment a
+            JOIN risk_profile p
+              ON p.profile_version = a.profile_version
+            WHERE a.account_id = :account_id
+              AND a.effective_from_utc <= :hour_ts_utc
+              AND (a.effective_to_utc IS NULL OR a.effective_to_utc > :hour_ts_utc)
+            ORDER BY a.effective_from_utc DESC, a.assignment_id DESC
+            """,
+            {"account_id": account_id, "hour_ts_utc": hour_ts_utc},
+        )
+        if not rows:
+            raise DeterministicAbortError("No active risk_profile assignment for execution hour.")
+        if len(rows) > 1:
+            raise DeterministicAbortError("Multiple active risk_profile assignments for execution hour.")
+
+        row = rows[0]
+        return RiskProfileState(
+            profile_version=str(row["profile_version"]),
+            total_exposure_mode=str(row["total_exposure_mode"]),
+            max_total_exposure_pct=(
+                _as_decimal(row["max_total_exposure_pct"])
+                if row["max_total_exposure_pct"] is not None
+                else None
+            ),
+            max_total_exposure_amount=(
+                _as_decimal(row["max_total_exposure_amount"])
+                if row["max_total_exposure_amount"] is not None
+                else None
+            ),
+            cluster_exposure_mode=str(row["cluster_exposure_mode"]),
+            max_cluster_exposure_pct=(
+                _as_decimal(row["max_cluster_exposure_pct"])
+                if row["max_cluster_exposure_pct"] is not None
+                else None
+            ),
+            max_cluster_exposure_amount=(
+                _as_decimal(row["max_cluster_exposure_amount"])
+                if row["max_cluster_exposure_amount"] is not None
+                else None
+            ),
+            max_concurrent_positions=int(row["max_concurrent_positions"]),
+            severe_loss_drawdown_trigger=_as_decimal(row["severe_loss_drawdown_trigger"]),
+            volatility_feature_id=int(row["volatility_feature_id"]),
+            volatility_target=_as_decimal(row["volatility_target"]),
+            volatility_scale_floor=_as_decimal(row["volatility_scale_floor"]),
+            volatility_scale_ceiling=_as_decimal(row["volatility_scale_ceiling"]),
+            hold_min_expected_return=_as_decimal(row["hold_min_expected_return"]),
+            exit_expected_return_threshold=_as_decimal(row["exit_expected_return_threshold"]),
+            recovery_hold_prob_up_threshold=_as_decimal(row["recovery_hold_prob_up_threshold"]),
+            recovery_exit_prob_up_threshold=_as_decimal(row["recovery_exit_prob_up_threshold"]),
+            derisk_fraction=_as_decimal(row["derisk_fraction"]),
+            signal_persistence_required=int(row["signal_persistence_required"]),
+            row_hash=str(row["row_hash"]),
+        )
+
+    def _load_volatility_features(
+        self,
+        run_id: UUID,
+        run_mode: str,
+        hour_ts_utc: datetime,
+        predictions: Sequence[PredictionState],
+        volatility_feature_id: int,
+    ) -> tuple[VolatilityFeatureState, ...]:
+        rows = self._db.fetch_all(
+            """
+            SELECT asset_id, feature_id, feature_value, row_hash
+            FROM feature_snapshot
+            WHERE run_id = :run_id
+              AND run_mode = :run_mode
+              AND hour_ts_utc = :hour_ts_utc
+              AND feature_id = :feature_id
+            ORDER BY asset_id ASC
+            """,
+            {
+                "run_id": str(run_id),
+                "run_mode": run_mode,
+                "hour_ts_utc": hour_ts_utc,
+                "feature_id": volatility_feature_id,
+            },
+        )
+        target_assets = {prediction.asset_id for prediction in predictions}
+        result: list[VolatilityFeatureState] = []
+        for row in rows:
+            asset_id = int(row["asset_id"])
+            if asset_id not in target_assets:
+                continue
+            result.append(
+                VolatilityFeatureState(
+                    asset_id=asset_id,
+                    feature_id=int(row["feature_id"]),
+                    feature_value=_as_decimal(row["feature_value"]),
+                    row_hash=str(row["row_hash"]),
+                )
+            )
+        return tuple(result)
+
+    def _load_positions(
+        self,
+        run_id: UUID,
+        account_id: int,
+        run_mode: str,
+        hour_ts_utc: datetime,
+    ) -> tuple[PositionState, ...]:
+        rows = self._db.fetch_all(
+            """
+            SELECT run_mode, account_id, asset_id, hour_ts_utc, source_run_id,
+                   quantity, exposure_pct, unrealized_pnl, row_hash
+            FROM position_hourly_state
+            WHERE run_mode = :run_mode
+              AND account_id = :account_id
+              AND hour_ts_utc = :hour_ts_utc
+              AND source_run_id = :source_run_id
+            ORDER BY asset_id ASC
+            """,
+            {
+                "run_mode": run_mode,
+                "account_id": account_id,
+                "hour_ts_utc": hour_ts_utc,
+                "source_run_id": str(run_id),
+            },
+        )
+        result: list[PositionState] = []
+        for row in rows:
+            result.append(
+                PositionState(
+                    run_mode=str(row["run_mode"]),
+                    account_id=int(row["account_id"]),
+                    asset_id=int(row["asset_id"]),
+                    hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
+                    source_run_id=_as_uuid(row["source_run_id"]),
+                    quantity=_as_decimal(row["quantity"]),
+                    exposure_pct=_as_decimal(row["exposure_pct"]),
+                    unrealized_pnl=_as_decimal(row["unrealized_pnl"]),
+                    row_hash=str(row["row_hash"]),
+                )
+            )
+        return tuple(result)

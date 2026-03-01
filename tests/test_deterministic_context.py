@@ -55,6 +55,25 @@ class _FakeDB:
             return list(self.payload.get("asset_cluster_membership", []))
         if "from cost_profile" in q:
             return list(self.payload.get("cost_profile", []))
+        if "from account_risk_profile_assignment" in q:
+            assignments = list(self.payload.get("account_risk_profile_assignment", []))
+            profiles = {
+                row["profile_version"]: row
+                for row in self.payload.get("risk_profile", [])
+            }
+            joined: list[dict[str, Any]] = []
+            for assignment in assignments:
+                profile = profiles.get(assignment["profile_version"])
+                if profile is None:
+                    continue
+                joined.append({**assignment, **profile})
+            return joined
+        if "from risk_profile" in q:
+            return list(self.payload.get("risk_profile", []))
+        if "from feature_snapshot" in q:
+            return list(self.payload.get("feature_snapshot", []))
+        if "from position_hourly_state" in q:
+            return list(self.payload.get("position_hourly_state", []))
         raise RuntimeError(f"Unhandled query: {sql}")
 
 
@@ -83,6 +102,7 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "hour_ts_utc": hour,
                 "horizon": "H1",
                 "model_version_id": 22,
+                "prob_up": Decimal("0.6500000000"),
                 "expected_return": Decimal("0.02"),
                 "upstream_hash": "d" * 64,
                 "row_hash": "e" * 64,
@@ -120,6 +140,7 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "portfolio_value": Decimal("10000"),
                 "drawdown_pct": Decimal("0.0100000000"),
                 "drawdown_tier": "NORMAL",
+                "base_risk_fraction": Decimal("0.0200000000"),
                 "max_concurrent_positions": 10,
                 "max_total_exposure_pct": Decimal("0.2"),
                 "max_cluster_exposure_pct": Decimal("0.08"),
@@ -156,6 +177,19 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "row_hash": "5" * 64,
             }
         ],
+        "position_hourly_state": [
+            {
+                "run_mode": "LIVE",
+                "account_id": 1,
+                "asset_id": 1,
+                "hour_ts_utc": hour,
+                "source_run_id": run_id,
+                "quantity": Decimal("1.000000000000000000"),
+                "exposure_pct": Decimal("0.0100000000"),
+                "unrealized_pnl": Decimal("0"),
+                "row_hash": "p" * 64,
+            }
+        ],
         "model_activation_gate": [
             {
                 "activation_id": 7,
@@ -180,6 +214,48 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "cost_profile_id": 2,
                 "fee_rate": Decimal("0.004"),
                 "slippage_param_hash": "8" * 64,
+            }
+        ],
+        "risk_profile": [
+            {
+                "profile_version": "default_v1",
+                "total_exposure_mode": "PERCENT_OF_PV",
+                "max_total_exposure_pct": Decimal("0.2000000000"),
+                "max_total_exposure_amount": None,
+                "cluster_exposure_mode": "PERCENT_OF_PV",
+                "max_cluster_exposure_pct": Decimal("0.0800000000"),
+                "max_cluster_exposure_amount": None,
+                "max_concurrent_positions": 10,
+                "severe_loss_drawdown_trigger": Decimal("0.2000000000"),
+                "volatility_feature_id": 9001,
+                "volatility_target": Decimal("0.0200000000"),
+                "volatility_scale_floor": Decimal("0.5000000000"),
+                "volatility_scale_ceiling": Decimal("1.5000000000"),
+                "hold_min_expected_return": Decimal("0"),
+                "exit_expected_return_threshold": Decimal("-0.005000000000000000"),
+                "recovery_hold_prob_up_threshold": Decimal("0.6000000000"),
+                "recovery_exit_prob_up_threshold": Decimal("0.3500000000"),
+                "derisk_fraction": Decimal("0.5000000000"),
+                "signal_persistence_required": 1,
+                "row_hash": "u" * 64,
+            }
+        ],
+        "account_risk_profile_assignment": [
+            {
+                "assignment_id": 1,
+                "profile_version": "default_v1",
+                "account_id": 1,
+                "effective_from_utc": hour - timedelta(days=1),
+                "effective_to_utc": None,
+                "row_hash": "v" * 64,
+            }
+        ],
+        "feature_snapshot": [
+            {
+                "asset_id": 1,
+                "feature_id": 9001,
+                "feature_value": Decimal("0.0200000000"),
+                "row_hash": "w" * 64,
             }
         ],
         "cash_ledger": [],
@@ -720,6 +796,46 @@ def test_context_missing_risk_or_capital_or_cost_profile_aborts() -> None:
             hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
         )
 
+    p = deepcopy(payload)
+    p["account_risk_profile_assignment"] = []
+    with pytest.raises(DeterministicAbortError, match="No active risk_profile assignment"):
+        DeterministicContextBuilder(_FakeDB(p)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+    p = deepcopy(payload)
+    p["account_risk_profile_assignment"] = [
+        *p["account_risk_profile_assignment"],
+        {
+            "assignment_id": 2,
+            "profile_version": "default_v1",
+            "account_id": 1,
+            "effective_from_utc": payload["run_context"][0]["hour_ts_utc"] - timedelta(hours=2),
+            "effective_to_utc": None,
+            "row_hash": "y" * 64,
+        },
+    ]
+    with pytest.raises(DeterministicAbortError, match="Multiple active risk_profile assignments"):
+        DeterministicContextBuilder(_FakeDB(p)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+    p = deepcopy(payload)
+    p["feature_snapshot"][0]["feature_id"] = 999
+    with pytest.raises(DeterministicAbortError, match="volatility_feature_id mismatch"):
+        DeterministicContextBuilder(_FakeDB(p)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
 
 def test_context_training_and_activation_collectors_cover_regime_only_ids() -> None:
     payload = _live_payload()
@@ -839,6 +955,7 @@ def test_context_risk_state_drawdown_defaults_when_fields_absent() -> None:
     payload = _live_payload()
     del payload["risk_hourly_state"][0]["drawdown_pct"]
     del payload["risk_hourly_state"][0]["drawdown_tier"]
+    del payload["risk_hourly_state"][0]["base_risk_fraction"]
     del payload["risk_hourly_state"][0]["max_concurrent_positions"]
 
     context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
@@ -849,4 +966,61 @@ def test_context_risk_state_drawdown_defaults_when_fields_absent() -> None:
     )
     assert context.risk_state.drawdown_pct == Decimal("0")
     assert context.risk_state.drawdown_tier == "NORMAL"
+    assert context.risk_state.base_risk_fraction == Decimal("0.0200000000")
     assert context.risk_state.max_concurrent_positions == 10
+
+
+def test_context_find_volatility_and_position_none_paths() -> None:
+    payload = _live_payload()
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+    )
+    assert context.find_position(1) is not None
+    assert context.find_volatility_feature(999) is None
+    assert context.find_position(999) is None
+
+
+def test_context_risk_profile_validation_branches() -> None:
+    payload = _live_payload()
+    payload["risk_profile"][0]["total_exposure_mode"] = "INVALID"
+    with pytest.raises(DeterministicAbortError, match="Unsupported total_exposure_mode"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+    payload = _live_payload()
+    payload["risk_profile"][0]["cluster_exposure_mode"] = "INVALID"
+    with pytest.raises(DeterministicAbortError, match="Unsupported cluster_exposure_mode"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+    payload = _live_payload()
+    payload["risk_profile"][0]["signal_persistence_required"] = 0
+    with pytest.raises(DeterministicAbortError, match="signal_persistence_required must be >= 1"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+    payload = _live_payload()
+    payload["risk_profile"][0]["volatility_scale_floor"] = Decimal("2.0000000000")
+    payload["risk_profile"][0]["volatility_scale_ceiling"] = Decimal("1.0000000000")
+    with pytest.raises(DeterministicAbortError, match="volatility scale floor/ceiling invalid"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )

@@ -19,10 +19,12 @@ from backend.db.models.portfolio import (
     PositionHourlyState,
 )
 from backend.db.models.risk import (
+    AccountRiskProfileAssignment,
     ClusterExposureHourlyState,
     RiskEvent,
     RiskHourlyState,
     RiskHourlyStateIdentity,
+    RiskProfile,
 )
 from backend.db.models.run_context import ReplayManifest, RunContext, SchemaMigrationControl
 from backend.db.models.signal import TradeSignal
@@ -33,6 +35,7 @@ __all__ = [
     "Account",
     "Asset",
     "AssetClusterMembership",
+    "AccountRiskProfileAssignment",
     "BacktestFoldResult",
     "BacktestRun",
     "CashLedger",
@@ -60,6 +63,7 @@ __all__ = [
     "RiskEvent",
     "RiskHourlyState",
     "RiskHourlyStateIdentity",
+    "RiskProfile",
     "RunContext",
     "SchemaMigrationControl",
     "TradeSignal",

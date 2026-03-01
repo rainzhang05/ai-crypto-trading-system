@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     CHAR,
     Boolean,
     CheckConstraint,
@@ -293,6 +294,131 @@ class ClusterExposureHourlyState(Base):
     max_cluster_exposure_pct: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
     state_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     parent_risk_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+
+
+class RiskProfile(Base):
+    """Versioned runtime risk profile values used by deterministic execution."""
+
+    __tablename__ = "risk_profile"
+    __table_args__ = (
+        PrimaryKeyConstraint("profile_version", name="pk_risk_profile"),
+        ForeignKeyConstraint(
+            ["volatility_feature_id"],
+            ["feature_definition.feature_id"],
+            name="fk_risk_profile_volatility_feature",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "total_exposure_mode IN ('PERCENT_OF_PV', 'ABSOLUTE_AMOUNT')",
+            name="ck_risk_profile_total_mode",
+        ),
+        CheckConstraint(
+            "cluster_exposure_mode IN ('PERCENT_OF_PV', 'ABSOLUTE_AMOUNT')",
+            name="ck_risk_profile_cluster_mode",
+        ),
+        CheckConstraint(
+            "(total_exposure_mode = 'PERCENT_OF_PV' AND max_total_exposure_pct IS NOT NULL "
+            "AND max_total_exposure_amount IS NULL) OR "
+            "(total_exposure_mode = 'ABSOLUTE_AMOUNT' AND max_total_exposure_amount IS NOT NULL "
+            "AND max_total_exposure_pct IS NULL)",
+            name="ck_risk_profile_total_mode_value_match",
+        ),
+        CheckConstraint(
+            "(cluster_exposure_mode = 'PERCENT_OF_PV' AND max_cluster_exposure_pct IS NOT NULL "
+            "AND max_cluster_exposure_amount IS NULL) OR "
+            "(cluster_exposure_mode = 'ABSOLUTE_AMOUNT' AND max_cluster_exposure_amount IS NOT NULL "
+            "AND max_cluster_exposure_pct IS NULL)",
+            name="ck_risk_profile_cluster_mode_value_match",
+        ),
+        CheckConstraint(
+            "max_concurrent_positions >= 0",
+            name="ck_risk_profile_max_positions_nonneg",
+        ),
+        CheckConstraint(
+            "severe_loss_drawdown_trigger >= 0 AND severe_loss_drawdown_trigger <= 1",
+            name="ck_risk_profile_severe_loss_trigger_range",
+        ),
+        CheckConstraint(
+            "volatility_target > 0",
+            name="ck_risk_profile_volatility_target_pos",
+        ),
+        CheckConstraint(
+            "volatility_scale_floor > 0 AND volatility_scale_ceiling >= volatility_scale_floor",
+            name="ck_risk_profile_volatility_scale_range",
+        ),
+        CheckConstraint(
+            "recovery_hold_prob_up_threshold >= 0 AND recovery_hold_prob_up_threshold <= 1",
+            name="ck_risk_profile_recovery_hold_prob_range",
+        ),
+        CheckConstraint(
+            "recovery_exit_prob_up_threshold >= 0 AND recovery_exit_prob_up_threshold <= 1",
+            name="ck_risk_profile_recovery_exit_prob_range",
+        ),
+        CheckConstraint(
+            "derisk_fraction >= 0 AND derisk_fraction <= 1",
+            name="ck_risk_profile_derisk_fraction_range",
+        ),
+        CheckConstraint(
+            "signal_persistence_required >= 1",
+            name="ck_risk_profile_signal_persistence_min",
+        ),
+    )
+
+    profile_version: Mapped[str] = mapped_column(Text, nullable=False)
+    total_exposure_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    max_total_exposure_pct: Mapped[Decimal | None] = mapped_column(Numeric(12, 10))
+    max_total_exposure_amount: Mapped[Decimal | None] = mapped_column(Numeric(38, 18))
+    cluster_exposure_mode: Mapped[str] = mapped_column(Text, nullable=False)
+    max_cluster_exposure_pct: Mapped[Decimal | None] = mapped_column(Numeric(12, 10))
+    max_cluster_exposure_amount: Mapped[Decimal | None] = mapped_column(Numeric(38, 18))
+    max_concurrent_positions: Mapped[int] = mapped_column(Integer, nullable=False)
+    severe_loss_drawdown_trigger: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+    volatility_feature_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    volatility_target: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+    volatility_scale_floor: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+    volatility_scale_ceiling: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+    hold_min_expected_return: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    exit_expected_return_threshold: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    recovery_hold_prob_up_threshold: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+    recovery_exit_prob_up_threshold: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+    derisk_fraction: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+    signal_persistence_required: Mapped[int] = mapped_column(Integer, nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+
+
+class AccountRiskProfileAssignment(Base):
+    """Effective-time account assignment for versioned risk profiles."""
+
+    __tablename__ = "account_risk_profile_assignment"
+    __table_args__ = (
+        PrimaryKeyConstraint("assignment_id", name="pk_account_risk_profile_assignment"),
+        ForeignKeyConstraint(
+            ["account_id"],
+            ["account.account_id"],
+            name="fk_account_risk_profile_assignment_account",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["profile_version"],
+            ["risk_profile.profile_version"],
+            name="fk_account_risk_profile_assignment_profile",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "effective_to_utc IS NULL OR effective_to_utc > effective_from_utc",
+            name="ck_account_risk_profile_assignment_window",
+        ),
+    )
+
+    assignment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    account_id: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    profile_version: Mapped[str] = mapped_column(Text, nullable=False)
+    effective_from_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    effective_to_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
 
 

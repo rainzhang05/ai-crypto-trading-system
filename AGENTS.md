@@ -316,13 +316,14 @@ Completed:
 - Phase 0 – Data foundation
 - Phase 1A–1D – Deterministic contract enforcement
 - Phase 2 – Replay harness architecture (deterministic replay tool implemented and validated)
+- Phase 3 – Governed risk runtime implementation (profile persistence, volatility sizing, adaptive horizon, severe-loss recovery intent)
 - Walk-forward gating
 - Runtime risk enforcement
 - Replay validation
 - Test coverage
 
 The system currently operates as a deterministic trading core.
-Phase 2 is closed; Phase 3 is ready to begin per `docs/specs/PROJECT_ROADMAP.md`.
+Phase 3 is closed; Phase 4 is ready to begin per `docs/specs/PROJECT_ROADMAP.md`.
 
 Future phases (per roadmap) will extend:
 

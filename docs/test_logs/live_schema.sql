@@ -633,6 +633,35 @@ ALTER TABLE public.account ALTER COLUMN account_id ADD GENERATED ALWAYS AS IDENT
 
 
 --
+-- Name: account_risk_profile_assignment; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.account_risk_profile_assignment (
+    assignment_id bigint NOT NULL,
+    account_id smallint NOT NULL,
+    profile_version text NOT NULL,
+    effective_from_utc timestamp with time zone NOT NULL,
+    effective_to_utc timestamp with time zone,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_account_risk_profile_assignment_window CHECK (((effective_to_utc IS NULL) OR (effective_to_utc > effective_from_utc)))
+);
+
+
+--
+-- Name: account_risk_profile_assignment_assignment_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.account_risk_profile_assignment ALTER COLUMN assignment_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.account_risk_profile_assignment_assignment_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: asset; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1771,6 +1800,46 @@ CREATE TABLE public.risk_hourly_state_identity (
 
 
 --
+-- Name: risk_profile; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.risk_profile (
+    profile_version text NOT NULL,
+    total_exposure_mode text NOT NULL,
+    max_total_exposure_pct numeric(12,10),
+    max_total_exposure_amount numeric(38,18),
+    cluster_exposure_mode text NOT NULL,
+    max_cluster_exposure_pct numeric(12,10),
+    max_cluster_exposure_amount numeric(38,18),
+    max_concurrent_positions integer NOT NULL,
+    severe_loss_drawdown_trigger numeric(12,10) NOT NULL,
+    volatility_feature_id integer NOT NULL,
+    volatility_target numeric(12,10) NOT NULL,
+    volatility_scale_floor numeric(12,10) NOT NULL,
+    volatility_scale_ceiling numeric(12,10) NOT NULL,
+    hold_min_expected_return numeric(38,18) NOT NULL,
+    exit_expected_return_threshold numeric(38,18) NOT NULL,
+    recovery_hold_prob_up_threshold numeric(12,10) NOT NULL,
+    recovery_exit_prob_up_threshold numeric(12,10) NOT NULL,
+    derisk_fraction numeric(12,10) NOT NULL,
+    signal_persistence_required integer NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_risk_profile_cluster_mode CHECK ((cluster_exposure_mode = ANY (ARRAY['PERCENT_OF_PV'::text, 'ABSOLUTE_AMOUNT'::text]))),
+    CONSTRAINT ck_risk_profile_cluster_mode_value_match CHECK ((((cluster_exposure_mode = 'PERCENT_OF_PV'::text) AND (max_cluster_exposure_pct IS NOT NULL) AND (max_cluster_exposure_amount IS NULL)) OR ((cluster_exposure_mode = 'ABSOLUTE_AMOUNT'::text) AND (max_cluster_exposure_amount IS NOT NULL) AND (max_cluster_exposure_pct IS NULL)))),
+    CONSTRAINT ck_risk_profile_derisk_fraction_range CHECK (((derisk_fraction >= (0)::numeric) AND (derisk_fraction <= (1)::numeric))),
+    CONSTRAINT ck_risk_profile_max_positions_nonneg CHECK ((max_concurrent_positions >= 0)),
+    CONSTRAINT ck_risk_profile_recovery_exit_prob_range CHECK (((recovery_exit_prob_up_threshold >= (0)::numeric) AND (recovery_exit_prob_up_threshold <= (1)::numeric))),
+    CONSTRAINT ck_risk_profile_recovery_hold_prob_range CHECK (((recovery_hold_prob_up_threshold >= (0)::numeric) AND (recovery_hold_prob_up_threshold <= (1)::numeric))),
+    CONSTRAINT ck_risk_profile_severe_loss_trigger_range CHECK (((severe_loss_drawdown_trigger >= (0)::numeric) AND (severe_loss_drawdown_trigger <= (1)::numeric))),
+    CONSTRAINT ck_risk_profile_signal_persistence_min CHECK ((signal_persistence_required >= 1)),
+    CONSTRAINT ck_risk_profile_total_mode CHECK ((total_exposure_mode = ANY (ARRAY['PERCENT_OF_PV'::text, 'ABSOLUTE_AMOUNT'::text]))),
+    CONSTRAINT ck_risk_profile_total_mode_value_match CHECK ((((total_exposure_mode = 'PERCENT_OF_PV'::text) AND (max_total_exposure_pct IS NOT NULL) AND (max_total_exposure_amount IS NULL)) OR ((total_exposure_mode = 'ABSOLUTE_AMOUNT'::text) AND (max_total_exposure_amount IS NOT NULL) AND (max_total_exposure_pct IS NULL)))),
+    CONSTRAINT ck_risk_profile_volatility_scale_range CHECK (((volatility_scale_floor > (0)::numeric) AND (volatility_scale_ceiling >= volatility_scale_floor))),
+    CONSTRAINT ck_risk_profile_volatility_target_pos CHECK ((volatility_target > (0)::numeric))
+);
+
+
+--
 -- Name: run_context; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -2005,6 +2074,14 @@ ALTER TABLE ONLY public.account
 
 
 --
+-- Name: account_risk_profile_assignment pk_account_risk_profile_assignment; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_risk_profile_assignment
+    ADD CONSTRAINT pk_account_risk_profile_assignment PRIMARY KEY (assignment_id);
+
+
+--
 -- Name: asset pk_asset; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2234,6 +2311,14 @@ ALTER TABLE ONLY public.risk_hourly_state
 
 ALTER TABLE ONLY public.risk_hourly_state_identity
     ADD CONSTRAINT pk_risk_hourly_state_identity PRIMARY KEY (run_mode, account_id, hour_ts_utc, source_run_id);
+
+
+--
+-- Name: risk_profile pk_risk_profile; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_profile
+    ADD CONSTRAINT pk_risk_profile PRIMARY KEY (profile_version);
 
 
 --
@@ -2622,6 +2707,13 @@ CREATE INDEX feature_snapshot_hour_ts_utc_idx ON public.feature_snapshot USING b
 
 
 --
+-- Name: idx_account_risk_profile_assignment_account_window; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_account_risk_profile_assignment_account_window ON public.account_risk_profile_assignment USING btree (account_id, effective_from_utc DESC);
+
+
+--
 -- Name: idx_asset_cluster_membership_asset_effective; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2955,6 +3047,13 @@ CREATE INDEX idx_risk_hourly_source_run_id ON public.risk_hourly_state USING btr
 --
 
 CREATE INDEX idx_risk_hourly_tier_hour_desc ON public.risk_hourly_state USING btree (drawdown_tier, hour_ts_utc DESC);
+
+
+--
+-- Name: idx_risk_profile_feature_id; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_risk_profile_feature_id ON public.risk_profile USING btree (volatility_feature_id);
 
 
 --
@@ -3315,6 +3414,13 @@ CREATE CONSTRAINT TRIGGER ctrg_risk_identity_source_exists AFTER INSERT ON publi
 
 
 --
+-- Name: account_risk_profile_assignment trg_account_risk_profile_assignment_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_account_risk_profile_assignment_append_only BEFORE DELETE OR UPDATE ON public.account_risk_profile_assignment FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
 -- Name: backtest_fold_result trg_backtest_fold_result_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3497,6 +3603,13 @@ CREATE TRIGGER trg_risk_hourly_state_identity_sync_ins AFTER INSERT ON public.ri
 
 
 --
+-- Name: risk_profile trg_risk_profile_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_risk_profile_append_only BEFORE DELETE OR UPDATE ON public.risk_profile FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
 -- Name: run_context trg_run_context_phase_1b_lock; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3578,6 +3691,22 @@ CREATE TRIGGER ts_insert_blocker BEFORE INSERT ON public.regime_output_phase1a_a
 --
 
 CREATE TRIGGER ts_insert_blocker BEFORE INSERT ON public.risk_hourly_state FOR EACH ROW EXECUTE FUNCTION _timescaledb_functions.insert_blocker();
+
+
+--
+-- Name: account_risk_profile_assignment fk_account_risk_profile_assignment_account; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_risk_profile_assignment
+    ADD CONSTRAINT fk_account_risk_profile_assignment_account FOREIGN KEY (account_id) REFERENCES public.account(account_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
+-- Name: account_risk_profile_assignment fk_account_risk_profile_assignment_profile; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.account_risk_profile_assignment
+    ADD CONSTRAINT fk_account_risk_profile_assignment_profile FOREIGN KEY (profile_version) REFERENCES public.risk_profile(profile_version) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
 
 --
@@ -4306,6 +4435,14 @@ ALTER TABLE ONLY public.risk_hourly_state
 
 ALTER TABLE ONLY public.risk_hourly_state
     ADD CONSTRAINT fk_risk_hourly_state_run_context_account_hour FOREIGN KEY (source_run_id, account_id, run_mode, hour_ts_utc) REFERENCES public.run_context(run_id, account_id, run_mode, hour_ts_utc) ON UPDATE RESTRICT ON DELETE RESTRICT NOT VALID;
+
+
+--
+-- Name: risk_profile fk_risk_profile_volatility_feature; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.risk_profile
+    ADD CONSTRAINT fk_risk_profile_volatility_feature FOREIGN KEY (volatility_feature_id) REFERENCES public.feature_definition(feature_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
 
 --

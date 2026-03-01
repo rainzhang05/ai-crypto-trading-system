@@ -112,6 +112,16 @@ if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_2_validatio
   exit 1
 fi
 
+echo "[test_all] Running Phase 3 validation gates..."
+docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
+  < "${ROOT_DIR}/docs/validations/PHASE_3_RUNTIME_VALIDATION.sql" \
+  | tee "${LOG_DIR}/phase_3_validation.log"
+
+if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_3_validation.log"; then
+  echo "[test_all] ERROR: Phase 3 validation gate failed." >&2
+  exit 1
+fi
+
 echo "[test_all] Verifying schema equivalence against canonical bootstrap..."
 docker exec "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" --schema-only --no-owner --no-privileges \
   > "${LOG_DIR}/live_schema.sql"
@@ -123,6 +133,7 @@ if ! cmp -s "${LOG_DIR}/live_schema.sql" "${ROOT_DIR}/schema_bootstrap.sql"; the
 fi
 
 echo "[test_all] Preparing Python test environment..."
+rm -rf "${VENV_DIR}"
 python3 -m venv "${VENV_DIR}"
 source "${VENV_DIR}/bin/activate"
 python -m pip install --upgrade pip > "${LOG_DIR}/pip_install.log"
