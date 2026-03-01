@@ -198,6 +198,14 @@ Frontend: Next.js
 
 All logs must allow full reconstruction of any trading hour.
 
+### CI/CD Workflows
+
+Workflow definitions live in `.github/workflows/`:
+
+- `ci.yml` enforces preflight + clean-room deterministic validation (`scripts/test_all.sh`).
+- `release.yml` produces tagged governance evidence releases.
+- `deploy-cloud-run.yml` provides manual, gated Cloud Run deployment (with dry-run support).
+
 ---
 
 ## 8. Governance Structure

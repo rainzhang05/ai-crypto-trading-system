@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Tag Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run clean-room validation pipeline
+        run: bash scripts/test_all.sh
+
+      - name: Build release evidence bundle
+        id: bundle
+        run: |
+          set -euo pipefail
+          BUNDLE_NAME="release-evidence-${GITHUB_REF_NAME}.tar.gz"
+          tar -czf "${BUNDLE_NAME}" \
+            AGENTS.md \
+            README.md \
+            schema_bootstrap.sql \
+            scripts/test_all.sh \
+            governance/specs \
+            governance/validations \
+            governance/reports \
+            governance/test_logs
+          echo "bundle_path=${BUNDLE_NAME}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload release evidence artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence-${{ github.ref_name }}
+          path: ${{ steps.bundle.outputs.bundle_path }}
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.bundle.outputs.bundle_path }}
+            schema_bootstrap.sql

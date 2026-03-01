@@ -1,0 +1,142 @@
+name: Deploy Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Target environment."
+        required: true
+        default: "paper"
+        type: choice
+        options:
+          - paper
+          - live
+      image_name:
+        description: "Artifact Registry image name."
+        required: true
+        default: "ai-crypto-trading-system"
+        type: string
+      dockerfile_path:
+        description: "Path to Dockerfile in repository."
+        required: true
+        default: "Dockerfile"
+        type: string
+      run_clean_room_validation:
+        description: "Run scripts/test_all.sh before deployment."
+        required: true
+        default: true
+        type: boolean
+      dry_run:
+        description: "Build and push image, but skip gcloud run deploy."
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ inputs.target_environment }}
+  cancel-in-progress: false
+
+jobs:
+  clean_room_gate:
+    name: Clean-Room Gate
+    if: ${{ inputs.run_clean_room_validation }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run canonical validation pipeline
+        run: bash scripts/test_all.sh
+
+      - name: Upload governance test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-gate-logs-${{ github.run_id }}
+          path: governance/test_logs
+          if-no-files-found: warn
+          retention-days: 30
+
+  deploy:
+    name: Build and Deploy
+    needs: clean_room_gate
+    if: ${{ always() && (!inputs.run_clean_room_validation || needs.clean_room_gate.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ inputs.target_environment }}
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ secrets.GCP_REGION }}
+      GAR_REPOSITORY: ${{ secrets.GAR_REPOSITORY }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required inputs and secrets
+        run: |
+          set -euo pipefail
+          test -f "${{ inputs.dockerfile_path }}" || {
+            echo "Dockerfile not found at: ${{ inputs.dockerfile_path }}" >&2
+            exit 1
+          }
+          for var in GCP_PROJECT_ID GCP_REGION GAR_REPOSITORY CLOUD_RUN_SERVICE; do
+            if [ -z "${!var:-}" ]; then
+              echo "Missing required secret: ${var}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Configure Docker auth for Artifact Registry
+        run: gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        id: image
+        run: |
+          set -euo pipefail
+          IMAGE_URI="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT_ID}/${GAR_REPOSITORY}/${{ inputs.image_name }}:${GITHUB_SHA}"
+          docker build --file "${{ inputs.dockerfile_path }}" --tag "${IMAGE_URI}" .
+          docker push "${IMAGE_URI}"
+          echo "image_uri=${IMAGE_URI}" >> "${GITHUB_OUTPUT}"
+
+      - name: Dry-run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "## Cloud Run Deployment (Dry Run)"
+            echo ""
+            echo "- Image pushed: \`${{ steps.image.outputs.image_uri }}\`"
+            echo "- Target service: \`${CLOUD_RUN_SERVICE}\`"
+            echo "- Region: \`${GCP_REGION}\`"
+            echo "- Project: \`${GCP_PROJECT_ID}\`"
+            echo ""
+            echo "No deployment was executed because \`dry_run=true\`."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Deploy to Cloud Run
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          gcloud run deploy "${CLOUD_RUN_SERVICE}" \
+            --project "${GCP_PROJECT_ID}" \
+            --region "${GCP_REGION}" \
+            --platform managed \
+            --image "${{ steps.image.outputs.image_uri }}" \
+            --no-allow-unauthenticated \
+            --quiet
