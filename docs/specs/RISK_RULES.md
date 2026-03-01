@@ -1,201 +1,164 @@
 # AI CRYPTO TRADING SYSTEM
 ## RISK MANAGEMENT & CAPITAL CONTROL RULES
+Version: 1.1
+Status: AUTHORITATIVE
 
-This document defines all formal capital allocation, exposure, drawdown, and halting logic.
-
-These rules are non-negotiable.
-
-Any modification requires logging in ARCHITECT_DECISIONS.md.
+This document defines formal capital allocation, exposure, drawdown, and emergency-control logic.
 
 ---
 
-# 1. CAPITAL DEFINITION
+# 1. PRINCIPLES
 
-1.1 Portfolio Value (PV)
-
-PV = Available Cash + Market Value of Open Positions
-
-1.2 Available Capital
-
-Available Capital = Cash not locked in open orders.
-
-1.3 Risk Capital
-
-Risk Capital = PV × Risk Scaling Factor
-
-Risk Scaling Factor adjusts based on drawdown state.
+1. Capital preservation is mandatory.
+2. Risk controls must be enforced at runtime before order emission.
+3. Risk limits are profile-configurable in UI with governance-safe defaults.
+4. Default values are not hardcoded forever; they are baseline presets.
 
 ---
 
-# 2. POSITION SIZING RULE
+# 2. CAPITAL AND RISK DEFINITIONS
 
-The system uses volatility-adjusted position sizing.
-
-Base Risk Fraction = 2% of Portfolio Value.
-
-Base Position Size = PV × 0.02
-
-Volatility Adjustment:
-
-Adjusted Position Size = Base Position Size × (Target Volatility / Asset Volatility)
-
-Where:
-
-- Asset Volatility = ATR(14) or rolling std
-- Target Volatility = predefined constant benchmark
-
-Position size must never exceed:
-
-- 2% of PV under normal conditions
-- Available Capital
-- Cluster exposure cap
+- Portfolio Value (PV) = cash + market value of open positions.
+- Available Capital = free cash not reserved by open orders.
+- Risk Profile = versioned set of runtime risk parameters selected by user/account policy.
 
 ---
 
-# 3. MAXIMUM EXPOSURE RULES
+# 3. USER-CONFIGURABLE LIMITS (WITH DEFAULTS)
 
-3.1 Maximum Concurrent Positions = 10
+The following must be configurable through interface controls:
 
-3.2 Maximum Total Exposure = 20% of Portfolio Value
+1. `max_concurrent_positions` (default `10`).
+2. `max_total_exposure` with unit mode:
+   - `PERCENT_OF_PV` (default `20%`).
+   - `ABSOLUTE_AMOUNT` (default profile amount).
+3. `max_cluster_exposure` with unit mode:
+   - `PERCENT_OF_PV` (default `8%`).
+   - `ABSOLUTE_AMOUNT` (default profile amount).
 
-3.3 Maximum Exposure per Correlation Cluster = 8% of Portfolio Value
-
-3.4 Exposure must be recalculated before every order submission.
-
----
-
-# 4. DRAWDOWN CALCULATION
-
-Peak Portfolio Value (PPV) = highest historical PV.
-
-Drawdown % = (PPV - PV) / PPV × 100
-
-Drawdown state must be calculated hourly.
+Runtime must enforce the active profile values, not static constants.
 
 ---
 
-# 5. DRAWDOWN RESPONSE RULES
+# 4. POSITION SIZING RULE
 
-If Drawdown >= 10%:
+Position sizing remains volatility-aware and profile-driven.
 
-- Reduce Base Risk Fraction from 2% to 1.5%.
-
-If Drawdown >= 15%:
-
-- Reduce Base Risk Fraction to 1%.
-- Reduce maximum concurrent positions to 5.
-
-If Drawdown >= 20%:
-
-- Immediately halt all new trading.
-- Cancel open unfilled orders.
-- Maintain only protective exits.
-- Require manual review before resuming.
-
-This logic must execute in live runtime.
-
-It must not rely solely on backtest simulation.
+- Base sizing starts from profile risk fraction and volatility scaling.
+- Final order size is clipped by:
+  - available capital
+  - max total exposure (selected unit mode)
+  - max cluster exposure (selected unit mode)
+  - exchange/lot constraints
 
 ---
 
-# 6. STOP-LOSS RULE
+# 5. DRAWDOWN POLICY
 
-Each trade must define:
+Drawdown controls are profile-configurable tiers with default safety presets.
 
-- Stop-loss level based on volatility multiple.
-- Take-profit level based on expected return threshold.
+Default profile may include traditional tiers (for example 10/15/20), but runtime must treat these as configurable policy values rather than immutable constants.
 
-Stop-loss must be:
+Critical behavior:
 
-- Pre-calculated before order placement.
-- Stored in database.
-- Enforced via runtime monitoring.
-
----
-
-# 7. KILL SWITCH CONDITIONS
-
-Immediate halt if any of the following occur:
-
-- Exchange API failure > threshold duration.
-- Spread widens beyond acceptable multiple of historical average.
-- Market volatility exceeds defined extreme threshold.
-- Database integrity error.
-- Risk rule inconsistency detected.
-
-Kill switch must:
-
-- Prevent new entries.
-- Log reason.
-- Require manual reactivation.
+1. Portfolio drawdown controls primarily govern admission of new risk.
+2. Portfolio drawdown does not imply automatic immediate liquidation of all open positions.
+3. Open positions are managed by prediction-led adaptive exit/recovery logic.
 
 ---
 
-# 8. FEE AND SLIPPAGE ENFORCEMENT
+# 6. ENTRY AND EXIT RISK BEHAVIOR
 
-All trade profitability calculations must include:
+## 6.1 Entry
 
-- Kraken fee = 0.4% per trade.
-- Modeled slippage component.
+Block new entry when any of the following holds:
 
-Order size must be adjusted to ensure:
+- Active risk profile limits would be exceeded.
+- Predicted downside risk is dominant.
+- Liquidity/spread/market-quality checks fail.
 
-Expected return > fee + slippage threshold.
+## 6.2 Exit
 
-No trade may be entered if:
+Exit is prediction-led:
 
-Expected Return ≤ Transaction Cost.
-
----
-
-# 9. CAPITAL PROTECTION PRIORITY
-
-When conflict arises between:
-
-- Signal confidence
-- Capital protection
-
-Capital protection wins.
-
-No override logic may bypass risk rules.
+- Exit aggressively when outlook is strongly negative and recovery odds are weak.
+- Avoid panic liquidation solely due to one loss-percentage threshold breach.
+- Use partial de-risking when outlook is mixed.
 
 ---
 
-# 10. LIVE VS BACKTEST CONSISTENCY
+# 7. SEVERE LOSS RECOVERY RULE
 
-The exact same risk rules must apply in:
+When a position is deeply adverse:
 
-- Backtesting engine
-- Paper trading
-- Live trading
+1. Enter recovery-analysis mode.
+2. Re-evaluate rebound-vs-continuation outlook continuously.
+3. Prefer:
+   - hold if recovery outlook remains credible,
+   - partial de-risk if uncertainty is high,
+   - full exit only when persistent downside is strongly likely.
+
+Exact model-state conditions and persistence logic are defined in:
+
+- `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+
+---
+
+# 8. KILL SWITCH
+
+Immediate entry-block when kill switch triggers:
+
+- Exchange/API instability
+- Data integrity failure
+- Extreme market-quality failure
+- Internal risk consistency failure
+
+Kill switch behavior:
+
+- Prevent new entries
+- Preserve logging and reason codes
+- Require controlled reactivation
+
+---
+
+# 9. COST GATING
+
+All entry profitability checks must include fee and slippage.
+
+No entry may proceed when expected net edge after cost is insufficient under active profile policy.
+
+---
+
+# 10. LIVE / PAPER / BACKTEST PARITY
+
+Risk logic must be strategy-identical across backtest, paper, and live, except for environment-specific execution frictions.
 
 No simplified risk model is allowed in backtest.
 
 ---
 
-# 11. SCALING RULE
+# 11. PROHIBITED ACTIONS
 
-Before increasing capital allocation:
+Forbidden:
 
-- Minimum 30-day paper trading.
-- Backtest validation.
-- Drawdown behavior review.
-- Architect approval.
-
-Capital scaling must be gradual.
+- Bypassing risk gates
+- Disabling drawdown controls
+- Hardcoding immutable exposure/position caps in strategy runtime
+- Hardcoding universal forced hold-time exits
+- Ignoring configured unit mode for exposure (percent vs amount)
 
 ---
 
-# 12. PROHIBITED ACTIONS
+# 12. AUDIT REQUIREMENTS
 
-The following are forbidden:
+Must log per decision:
 
-- Increasing position size to recover losses.
-- Disabling drawdown halts.
-- Ignoring volatility scaling.
-- Hardcoding position size.
-- Ignoring correlation caps.
-- Overriding kill switch.
+- active risk profile version and values
+- exposure unit mode and computed usage
+- gate pass/fail reasons
+- severe-loss recovery mode actions
+
+Logs must support deterministic replay.
 
 ---
 

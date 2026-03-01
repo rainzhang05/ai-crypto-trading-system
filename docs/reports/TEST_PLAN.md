@@ -28,6 +28,7 @@
   - `execution.replay_engine.replay_hour(...)` assertions in integration + unit tests
   - `execution.replay_harness.replay_manifest_parity(...)` + `replay_manifest_window_parity(...)` assertions
   - `execution.replay_harness.replay_manifest_tool_parity(...)` assertions
+  - Adaptive-horizon path checks: verify no hardcoded global holding-window cap and deterministic re-evaluation of exit timing inputs
   - Replay CLI entrypoint present: `scripts/replay_cli.py` (`execute-hour`, `replay-hour`, `replay-manifest`, `replay-window`, `replay-tool`)
   - Governance parity gates in `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
 - Governance SQL validations:

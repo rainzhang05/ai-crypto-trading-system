@@ -6,7 +6,8 @@ This directory is organized by artifact type to keep deterministic governance as
 
 - `specs/`
   - Authoritative project contracts and acceptance criteria.
-  - Includes `MASTER_SPEC.md`, `PROJECT_ROADMAP.md`, `PROJECT_GOVERNANCE.md`, `ARCHITECT_DECISIONS.md`, `RISK_RULES.md`, `MODEL_ASSUMPTIONS.md`, `SCHEMA_DDL_MASTER.md`.
+  - Includes `MASTER_SPEC.md`, `PROJECT_ROADMAP.md`, `PROJECT_GOVERNANCE.md`, `ARCHITECT_DECISIONS.md`, `RISK_RULES.md`, `MODEL_ASSUMPTIONS.md`, `SCHEMA_DDL_MASTER.md`, `TRADING_LOGIC_EXECUTION_SPEC.md`.
+  - Includes adaptive-horizon policy (no fixed global maximum holding window) and deterministic re-evaluation requirements.
 - `validations/`
   - Executable SQL validation gates used by test/rebuild flows.
   - Includes `PHASE_1C_VALIDATION.sql`, `PHASE_1D_RUNTIME_VALIDATION.sql`, `TEST_RUNTIME_INSERT_ENABLE.sql`.
@@ -20,6 +21,7 @@ This directory is organized by artifact type to keep deterministic governance as
   - Governance prompts used during architect/auditor/implementation workflows.
 - `phases/`
   - Phase-specific implementation logs and historical migration artifacts.
+  - Historical snapshots may contain superseded assumptions; current trading-horizon policy is always defined in `docs/specs/*`.
 - `test_logs/`
   - Generated logs from `make test` / `scripts/test_all.sh` clean-room runs.
 

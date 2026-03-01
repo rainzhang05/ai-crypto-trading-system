@@ -22,6 +22,11 @@ Canonical executable schema snapshot:
 - No-leverage enforcement is encoded in `order_request`.
 - Deterministic join keys are enforced across `run_id`, `account_id`, and `hour_ts_utc`.
 
+Phase-alignment note:
+- This document is the canonical schema snapshot for completed Phase 0-2 infrastructure.
+- Current numeric caps (for example 10/20%/8%) reflect baseline schema constraints in this snapshot.
+- Live strategy policy requires profile-configurable risk/exposure controls in later phases, implemented through governed schema/runtime evolution (see `PROJECT_ROADMAP.md` and `TRADING_LOGIC_EXECUTION_SPEC.md`).
+
 ---
 
 ## 1. ENUM DEFINITIONS
@@ -43,6 +48,11 @@ CREATE TYPE order_status_enum AS ENUM ('NEW', 'ACK', 'PARTIAL', 'FILLED', 'CANCE
 
 CREATE TYPE drawdown_tier_enum AS ENUM ('NORMAL', 'DD10', 'DD15', 'HALT20');
 ```
+
+`horizon_enum` policy interpretation (no schema change):
+- `H1`, `H4`, `H24` are forecast windows for model outputs, not mandatory maximum holding durations.
+- Position lifecycle may extend beyond 24h when updated forecasts and risk constraints remain favorable.
+- Exit timing is runtime/model-governed, not mechanically forced by horizon label alone.
 
 ---
 
@@ -1294,7 +1304,7 @@ Symbols:
 
 ## 6. FINANCIAL SAFETY VERIFICATION
 
-- 20% drawdown hard halt is enforced by:
+- Current baseline schema enforces a 20% portfolio drawdown new-entry circuit breaker via:
   - `ck_risk_hourly_state_tier_mapping`
   - `ck_risk_hourly_state_dd20_halt`
 - No hidden leverage is enforced by:

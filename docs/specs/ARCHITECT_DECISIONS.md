@@ -50,16 +50,20 @@ Status: Approved / Rejected / Pending
 
 The following items are locked per Master Specification and cannot be changed without explicit documented approval:
 
-1. Maximum drawdown hard stop = 20%.
+1. Drawdown/entry-circuit-breaker framework (profile defaults governed; values configurable by policy).
 2. No margin, no leverage.
 3. Volatility-adjusted position sizing.
 4. Walk-forward training validation.
 5. Meta-learner stacking structure.
-6. Correlation cluster exposure caps.
+6. Exposure cap framework (supports percent and absolute modes).
 7. Slippage modeling inclusion.
 8. Exact Kraken fee modeling (0.4% per trade).
 9. Deterministic execution logic.
-10. Hourly prediction cycle.
+10. Recurring deterministic re-evaluation cycle (continuous live target with replay-safe context).
+
+Interpretation note:
+- Historical decision entries document constraints and defaults that were active at the time of each decision.
+- Current strategy authority for live behavior is `TRADING_LOGIC_EXECUTION_SPEC.md` and newer decisions (especially ARCH-0005 and ARCH-0006).
 
 ---
 
@@ -74,6 +78,10 @@ Version 1.0
 Version 1.1
 - Cloud infrastructure migrated from Microsoft Azure to Google Cloud Platform (GCP).
 - Trading logic, risk rules, and modeling architecture remain unchanged.
+
+Version 1.2
+- Strategy policy upgraded to continuous live decisioning with profile-configurable risk/exposure controls.
+- LLM support path changed from excluded to optional future advisory mode (non-authoritative unless explicitly approved).
 
 ---
 
@@ -404,6 +412,96 @@ None to strategy economics.
 Architect: Approved  
 Auditor: Validation gate passed  
 Status: Approved; Phase 2 closed, Phase 3 authorized
+
+---
+
+## DECISION ARCH-0005 — ADAPTIVE HOLDING HORIZON POLICY
+
+Date: 2026-03-01  
+Module Affected: Strategy Layer, Model Output Contract, Governance Layer
+
+### Description
+
+The project policy is updated from fixed short-window holding assumptions to an adaptive, model-driven holding horizon.
+
+Approved behavior:
+
+- No global hard cap that forces all positions to close within a fixed window (for example, 24 hours).
+- Positions may be held for short-term, medium-term, or long-term durations when model edge and risk state remain valid.
+- Exit timing must be re-evaluated on every decision trigger using the latest data.
+- "Best selling time" is treated as a continuously updated forecast target, not a static value assigned at entry.
+- Tactical partial exits and tactical re-entries are allowed within a campaign to harvest short-term opportunities.
+- Default policy may include a 20% new-entry circuit breaker; it is not a mandatory immediate full liquidation trigger for all open positions.
+
+### Reason
+
+Fixed short windows constrain strategy expressiveness and can force premature exits. The ensemble architecture is intended to adapt holding duration to evolving market conditions while preserving deterministic replay and risk-first controls.
+
+### Risk Impact
+
+MEDIUM / POSITIVE when combined with existing controls.
+
+- Positive: avoids deterministic premature exits that can reduce risk-adjusted returns.
+- Guardrails unchanged: drawdown halts, exposure caps, no-leverage, fee/slippage checks, and kill switch remain mandatory.
+- Requirement: every horizon update and exit rationale must remain fully logged for replay reconstruction.
+- Phase 0-2 compatibility is preserved: no mandatory schema change is required for this policy interpretation.
+
+### Backtest Impact
+
+Yes, strategy behavior may change and requires adaptive-horizon simulation in backtest/paper/live parity flows.
+
+- Historical fixed-window assumptions are no longer governance-preferred.
+- Backtest logic must evaluate rolling re-forecast exits under identical risk constraints.
+
+### Approval
+
+Architect: Approved  
+Auditor: Pending runtime parity verification  
+Status: Approved
+
+---
+
+## DECISION ARCH-0006 — CONTINUOUS LIVE POLICY AND CONFIGURABLE RISK PROFILES
+
+Date: 2026-03-01  
+Module Affected: Strategy Runtime, Risk Profile Layer, Product Configuration Interface
+
+### Description
+
+Policy is extended to require:
+
+- Continuous live decisioning (event-driven), not fixed interval-only strategy behavior.
+- User-configurable position/exposure controls through profile settings.
+- Exposure controls supporting percent-of-portfolio and absolute-amount modes.
+- Prediction-led exits and severe-loss recovery logic over fixed loss-threshold liquidation.
+
+### Reason
+
+Static thresholds and fixed decision intervals reduce adaptability to real-time market state transitions. Configurable profiles and continuous evaluation allow the system to optimize behavior under diverse user risk preferences while preserving deterministic governance.
+
+### Risk Impact
+
+MEDIUM / MANAGEABLE with governance controls.
+
+- Positive: strategy flexibility and better timing responsiveness.
+- Risk: misconfiguration risk is introduced.
+- Mitigation: profile versioning, audit logging, safety bounds, and deterministic replay of profile state.
+
+### Backtest Impact
+
+Yes, backtest/paper/live logic must include:
+
+- profile-parameter surfaces,
+- unit-mode exposure enforcement,
+- continuous/event-driven evaluation semantics.
+
+Historical Phase 0-2 artifacts remain valid as deterministic scaffolding and historical baseline.
+
+### Approval
+
+Architect: Approved  
+Auditor: Pending implementation-phase validation  
+Status: Approved
 
 ---
 

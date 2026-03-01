@@ -35,9 +35,11 @@ You must search for:
 • Drawdown enforcement failure
 • Kill switch bypass risk
 • Execution inconsistency
+• Hardcoded fixed holding windows that bypass adaptive exit logic
 • Overfitting risk
 • Regime classifier leakage
 • Meta-learner stacking leakage
+• Non-compliance with TRADING_LOGIC_EXECUTION_SPEC.md
 
 ---
 
@@ -70,6 +72,7 @@ You must explicitly verify:
 - Can drawdown halt be bypassed?
 - Are correlation caps enforced pre-order?
 - Is volatility-adjusted sizing applied at runtime?
+- Is exit timing re-evaluated with new predictions, rather than fixed by a static hold cap?
 
 ---
 

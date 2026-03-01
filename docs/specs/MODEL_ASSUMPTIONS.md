@@ -9,7 +9,7 @@ Any assumption change must be reviewed and logged in ARCHITECT_DECISIONS.md.
 
 # 1. MARKET ASSUMPTIONS
 
-1.1 Crypto markets are partially inefficient at short to medium horizons (1h–24h).
+1.1 Crypto markets are partially inefficient across adaptive horizons, from short-term to long-term windows.
 
 1.2 Price movements exhibit:
 - Momentum persistence in trending regimes.
@@ -19,11 +19,15 @@ Any assumption change must be reviewed and logged in ARCHITECT_DECISIONS.md.
 1.3 Liquidity is sufficient for:
 - Limit order execution.
 - Small capital deployment.
-- Maximum 10 concurrent positions.
+- Profile-configured concurrent position limits (default 10).
 
-1.4 Kraken order execution latency is assumed to be within normal exchange ranges and does not systematically distort hourly predictions.
+1.4 Kraken order execution latency is assumed to be within normal exchange ranges and does not systematically distort continuous live predictions.
 
-1.5 Slippage is non-zero and must be modeled.
+1.5 Holding duration is model-adaptive and may extend beyond 24 hours when updated forecasts preserve positive edge under risk constraints.
+
+1.6 Slippage is non-zero and must be modeled.
+
+1.7 Tactical short-term reversals can be harvested inside a broader campaign thesis through partial exits and re-entries.
 
 ---
 
@@ -53,7 +57,7 @@ Any assumption change must be reviewed and logged in ARCHITECT_DECISIONS.md.
 
 3.4 Feature engineering must be deterministic and reproducible.
 
-3.5 Volatility (ATR, rolling std) is assumed to approximate short-term risk.
+3.5 Volatility (ATR, rolling std) is assumed to approximate near-term risk and support adaptive exit timing updates.
 
 3.6 BTC beta and correlation are assumed to capture systemic crypto risk.
 
@@ -81,7 +85,7 @@ Any assumption change must be reviewed and logged in ARCHITECT_DECISIONS.md.
 
 5.1 Historical relationships partially generalize to near-future windows.
 
-5.2 Retraining frequency must match regime change frequency.
+5.2 Retraining cadence may be scheduled and/or drift-triggered and must match regime change frequency.
 
 5.3 Overfitting risk increases with:
 - Excessive feature count.
@@ -105,6 +109,8 @@ Any assumption change must be reviewed and logged in ARCHITECT_DECISIONS.md.
 6.5 Market crashes may exceed modeled slippage.
 
 6.6 Capital preservation overrides signal confidence.
+
+6.7 In severe loss states, rebound-vs-continuation inference is assumed to improve liquidation timing relative to naive threshold-only exits.
 
 ---
 

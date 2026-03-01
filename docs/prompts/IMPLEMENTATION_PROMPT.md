@@ -17,6 +17,7 @@ You must:
 
 • Implement only what is explicitly specified.
 • Follow module contracts exactly.
+• Implement TRADING_LOGIC_EXECUTION_SPEC.md exactly where strategy/risk behavior is in scope.
 • Maintain strict separation of concerns.
 • Write modular, production-quality code.
 • Add logging to all critical operations.
@@ -36,12 +37,13 @@ You must NOT:
 • Modify position sizing formulas.
 • Modify slippage modeling.
 • Modify fee modeling.
-• Modify drawdown thresholds.
-• Modify correlation caps.
+• Hardcode immutable drawdown thresholds in strategy runtime.
+• Hardcode immutable correlation/exposure caps in strategy runtime.
 • Modify training-validation logic.
 • Introduce discretionary overrides.
 • Hardcode profit thresholds.
 • Simplify risk enforcement logic.
+• Hardcode a universal maximum holding-time window.
 
 If asked to change financial logic:
 

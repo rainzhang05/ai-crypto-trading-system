@@ -14,10 +14,12 @@ The system:
 
 - Trades crypto assets (Kraken assumed venue)
 - Enforces strict capital control
+- Uses adaptive holding duration (no fixed maximum hold window such as 24h)
+- Uses active campaign management (tactical partial exits/re-entries before final campaign exit)
 - Is fully backtestable and replayable
 - Uses append-only accounting
 - Prevents leverage
-- Enforces hard 20% drawdown halt
+- Uses profile-configurable drawdown and exposure controls with governed defaults
 - Guarantees deterministic execution paths
 
 This is a **production-grade financial system**.  
@@ -28,6 +30,7 @@ Authoritative governance rules are defined in:
 - `docs/specs/PROJECT_GOVERNANCE.md`
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/SCHEMA_DDL_MASTER.md`
+- `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
 
 These documents define non-negotiable constraints.
 
@@ -167,12 +170,14 @@ Contains authoritative rule definitions:
 - `SCHEMA_DDL_MASTER.md`
 - `ARCHITECT_DECISIONS.md`
 - `MODEL_ASSUMPTIONS.md`
+- `TRADING_LOGIC_EXECUTION_SPEC.md`
 
 These define:
 - Financial invariants
 - Schema invariants
 - Change management
 - Risk constraints
+- Strategy and decision-layer execution logic
 
 Agents must treat these as binding contracts.
 
@@ -255,7 +260,7 @@ docs/specs/SCHEMA_DDL_MASTER.md
 The schema enforces:
 
 - No leverage
-- Hard 20% drawdown halt
+- Drawdown-tier and entry-gating safety constraints (default profile values may evolve)
 - Append-only financial tables
 - Deterministic join keys
 - Replay-safe hashes
@@ -280,7 +285,8 @@ Determinism is enforced via:
 - Unique signal identity
 - Replay engine
 
-Every trading hour must be reproducible from stored state.
+Phase 0-2 replay surfaces are hour-bucketed and must be reproducible from stored state.
+Future live runtime phases remain required to preserve deterministic replay guarantees.
 
 ---
 
@@ -292,6 +298,7 @@ This repository is **not**:
 - An experimentation playground
 - A leverage-enabled system
 - A latency-optimized HFT engine
+- A fixed-window-only strategy locked to short holding periods
 - A strategy research notebook
 
 It is a capital-preserving deterministic trading infrastructure.

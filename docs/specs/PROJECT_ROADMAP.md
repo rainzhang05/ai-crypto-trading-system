@@ -14,11 +14,18 @@ Build a production-grade, deterministic, auditable AI crypto trading system with
 - Strict capital preservation
 - Append-only financial ledger
 - Walk-forward validated models
+- Adaptive model-driven holding horizon (short-term to long-term)
+- Continuous live decisioning (event-driven evaluation)
+- User-configurable risk/exposure profiles (with governed defaults)
 - Risk-enforced execution
 - Backtest ↔ Paper ↔ Live parity
 - Regulatory-grade reconstruction capability
 
 Capital Preservation > Determinism > Risk Enforcement > Backtest Integrity > Optimization.
+
+Authoritative strategy execution rules are defined in:
+
+- `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
 
 ---
 
@@ -173,11 +180,17 @@ Implement:
 - Drawdown tier logic
 - Kill switch enforcement
 - Volatility-adjusted sizing runtime
-- Exposure cap enforcement
-- Cluster cap enforcement
+- Exposure cap enforcement with selectable unit mode (percent / absolute amount)
+- Cluster cap enforcement with selectable unit mode (percent / absolute amount)
 - Risk-state state machine
+- Adaptive horizon risk gating (allow extended holds only while risk/edge conditions remain valid)
+- Severe-loss recovery evaluation mode (prediction-led hold/de-risk/exit)
 
 Runtime must exactly match schema invariants.
+
+Phase 3 strategy/risk runtime delivery must implement:
+
+- `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
 
 ---
 
@@ -185,7 +198,7 @@ Runtime must exactly match schema invariants.
 
 Implement:
 - Signal → Order → Fill → Lot → Trade
-- Multi-hour lifecycle logic
+- Continuous campaign lifecycle logic
 - Retry logic
 - Partial fill handling
 - Exchange adapter abstraction
@@ -194,6 +207,7 @@ Must preserve:
 - Long-only enforcement
 - No-leverage enforcement
 - Causal ordering
+- No fixed maximum holding-time cap
 
 ---
 
@@ -261,8 +275,21 @@ Implement:
 - Retry with exponential backoff
 - Real-time ledger updates
 - Real-time risk enforcement
+- Event-driven continuous decision triggers
 
 No risk bypass allowed.
+
+---
+
+## PHASE 11 — OPTIONAL LLM ASSIST LAYER (NON-AUTHORITATIVE)
+
+Implement (optional, governance-gated):
+
+- LLM advisory/context layer for anomaly explanation and strategy assistance
+- Strict non-authoritative integration in initial release
+- Full audit logging of LLM inputs/outputs when enabled
+
+Order-authoritative LLM behavior requires separate explicit governance approval.
 
 ---
 
@@ -385,6 +412,7 @@ Project is considered complete when:
 - Walk-forward contamination impossible
 - Model activation gated by OOS validation
 - Live trading runs without invariant violation
+- Adaptive horizon decisions are replay-reconstructable from stored state
 - Monitoring detects anomalies
 - Audit reconstruction reproducible from hash chain
 - Capital preservation rules cannot be bypassed

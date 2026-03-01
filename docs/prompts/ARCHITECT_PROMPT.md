@@ -19,12 +19,14 @@ You must:
 • Enforce PROJECT_GOVERNANCE.md.
 • Enforce RISK_RULES.md.
 • Enforce MODEL_ASSUMPTIONS.md.
+• Enforce TRADING_LOGIC_EXECUTION_SPEC.md.
 • Prevent architectural drift.
 • Define module boundaries clearly.
 • Define interface contracts explicitly.
 • Identify hidden financial implications.
 • Ensure deterministic decision logic.
 • Ensure backtest/live consistency.
+• Enforce adaptive holding-horizon policy (no fixed global max hold window).
 
 You must review all changes for:
 

@@ -1,112 +1,90 @@
 # AI CRYPTO TRADING SYSTEM
 ## PROJECT GOVERNANCE DOCUMENT
+Version: 1.1
+Status: AUTHORITATIVE
 
-This document defines the non-negotiable architectural, financial, and operational rules governing the development of the AI Crypto Trading System.
+This document defines non-negotiable governance rules for architecture, finance, and operations.
 
-This system manages real capital.  
-Stability, determinism, and capital preservation take precedence over optimization and speed.
+Authoritative strategy behavior is defined in:
 
-All AI agents, developers, and contributors must comply with the rules defined herein.
+- `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
 
 ---
 
 # 1. GOVERNING PRINCIPLES
 
-1. The system must remain deterministic.
-2. All trading decisions must be fully backtestable.
-3. No non-quantitative discretionary logic is allowed.
-4. Capital preservation has priority over return maximization.
-5. The 20% maximum drawdown rule is absolute and cannot be modified without explicit architectural revision.
-6. No hidden leverage is permitted.
-7. No margin, borrowing, or synthetic leverage is allowed.
-8. All risk controls must be enforced at execution time.
+1. Determinism is required.
+2. All decisions must be backtestable and replayable.
+3. Capital preservation has priority over raw return.
+4. No hidden leverage, margin, or borrowing is allowed.
+5. Risk controls must be enforced at execution time.
+6. Strategy must be prediction-led, not fixed-rule-only.
 
 ---
 
-# 2. ARCHITECTURAL IMMUTABILITY RULES
+# 2. ARCHITECTURE IMMUTABILITY WITH CONFIGURABILITY
 
-The following components are architecture-critical and cannot be modified without Architect approval:
+The following domains require Architect approval for structural change:
 
-- Position sizing formula
-- Fee modeling logic
-- Slippage modeling logic
-- Walk-forward validation structure
-- Timestamp alignment logic
-- Meta-learner structure
-- Drawdown halting rules
-- Correlation cluster caps
-- Execution order logic
+- data lineage and replay contracts
+- walk-forward validation structure
+- fee/slippage and accounting logic
+- risk-gating flow
+- execution order lifecycle
+- strategy state classification semantics
 
-Any proposed modification must include:
+Configurable-at-runtime policy:
 
-- Reason for change
-- Risk impact analysis
-- Backtest impact analysis
-- Explicit approval documentation
+- Numeric strategy/risk values may be user-adjustable through governed profiles.
+- Default values are baseline presets, not immutable constants.
+- Profile changes must be versioned and logged.
 
 ---
 
-# 3. DATA GOVERNANCE RULES
+# 3. DATA GOVERNANCE
 
-1. All data must be timestamped.
-2. No forward-looking data is allowed in feature construction.
-3. No label leakage is permitted.
-4. All features must be derived only from information available at prediction time.
-5. Timezone consistency must be enforced across all exchanges.
-6. Market data must be stored in raw form before transformation.
-7. Feature pipelines must be reproducible.
-
-Failure to comply results in invalid backtesting.
+1. No forward-looking leakage.
+2. Timestamp integrity is mandatory.
+3. Raw data must be preserved before transformation.
+4. All feature pipelines must be reproducible.
 
 ---
 
-# 4. MODEL GOVERNANCE RULES
+# 4. MODEL GOVERNANCE
 
-All models must:
+Models must:
 
-- Be trained using walk-forward validation.
-- Avoid static train/test splits.
-- Log hyperparameters.
-- Log training window.
-- Log validation performance.
-- Log feature importance where applicable.
-- Be reproducible using saved seeds.
-
-No model may:
-
-- Access future returns during training.
-- Use test data in feature normalization.
-- Be manually tuned to a single backtest window.
+- use walk-forward validation
+- avoid static split misuse
+- log training windows and parameters
+- support drift-aware retraining
+- remain reproducible
 
 ---
 
-# 5. BACKTESTING GOVERNANCE
+# 5. STRATEGY GOVERNANCE
 
-Backtesting must:
+Required:
 
-- Include Kraken fee of 0.4% per trade.
-- Include slippage modeling.
-- Enforce position limits.
-- Enforce volatility-adjusted sizing.
-- Enforce drawdown halting logic.
-- Enforce cluster exposure caps.
-- Enforce execution delays consistent with live environment.
+1. Continuous live evaluation behavior (event-driven, not fixed timer-only strategy behavior).
+2. Adaptive holding behavior (no universal forced max hold timer).
+3. Tactical profit realization and re-entry behavior during campaigns.
+4. Prediction-led exits with recovery-aware handling in severe adverse states.
 
-Backtests that ignore any of the above are invalid.
+Forbidden:
+
+- hardcoding universal entry/exit thresholds directly in runtime logic without profile control
+- timer-only liquidation behavior
+- loss-percentage-only liquidation behavior
 
 ---
 
 # 6. RISK GOVERNANCE
 
-The following are mandatory:
-
-- 10% drawdown → reduce position size.
-- 15% drawdown → reduce trade frequency.
-- 20% drawdown → immediate trading halt.
-
-The halt logic must be executed at runtime, not simulated only.
-
-No override logic may bypass this.
+1. Position/exposure controls must be profile-configurable in UI.
+2. `max_concurrent_positions`, `max_total_exposure`, and `max_cluster_exposure` must support governed defaults and user adjustment.
+3. Total/cluster exposure must support both percent-of-PV mode and absolute-amount mode.
+4. Portfolio drawdown controls gate new risk admission and must remain enforced.
 
 ---
 
@@ -114,117 +92,72 @@ No override logic may bypass this.
 
 Execution engine must:
 
-- Validate capital availability before order placement.
-- Recalculate position size using current volatility.
-- Verify spread before placing limit orders.
-- Log all order attempts.
-- Log partial fills.
-- Log cancellations.
-- Log final fill price.
-- Retry failed API calls with exponential backoff.
-
-Under no circumstances may:
-
-- Orders exceed available capital.
-- Orders bypass risk validation.
-- Orders ignore fee assumptions.
+- validate active risk profile before order admission
+- enforce capital and exposure constraints using selected unit mode
+- log all order lifecycle events and reason codes
+- preserve deterministic behavior for replay
 
 ---
 
-# 8. CHANGE MANAGEMENT PROCESS
+# 8. LLM POLICY
 
-All structural changes must follow:
+Current order authority remains quantitative-model driven.
 
-1. Architect proposal.
-2. Implementation.
-3. Architect review.
-4. Auditor review.
-5. Documented approval in ARCHITECT_DECISIONS.md.
+Future LLM support is allowed only as:
 
-No direct structural changes may be merged without review.
+- advisory/context assistance
+- non-authoritative suggestion layer
 
----
-
-# 9. AGENT ROLE ENFORCEMENT
-
-Architect Agent:
-- Defines structure.
-- Enforces constraints.
-- Rejects architectural drift.
-
-Implementation Agent:
-- Executes strictly defined tasks.
-- Does not modify architecture.
-
-Auditor Agent:
-- Searches for bias, leakage, accounting errors, and risk violations.
-
-No agent may operate outside its defined role.
+LLM can become order-authoritative only after explicit governance approval, auditing, and replay contract extension.
 
 ---
 
-# 10. PROHIBITED ACTIONS
+# 9. CHANGE MANAGEMENT
 
-The following are strictly prohibited:
+Any structural change requires:
 
-- Introducing LLM decision logic into trading layer.
-- Removing drawdown halts.
-- Disabling slippage modeling.
-- Hardcoding profit thresholds to pass backtests.
-- Overriding correlation caps.
-- Skipping walk-forward validation.
-- Using live trading as experimentation.
+1. Architect proposal
+2. Implementation
+3. Architect review
+4. Auditor review
+5. Decision log entry in `ARCHITECT_DECISIONS.md`
 
 ---
 
-# 11. LOGGING REQUIREMENTS
+# 10. LOGGING REQUIREMENTS
 
-The system must log:
+System must log:
 
-- Every prediction.
-- Every feature snapshot.
-- Every model output.
-- Every trade signal.
-- Every order event.
-- Every portfolio value update.
-- Every drawdown state.
+- model outputs and derived strategy states
+- profile version and parameter values used for each decision
+- entry/hold/partial/exit reason codes
+- severe-loss recovery decisions
+- risk gate outcomes
 
-Logs must allow full reconstruction of any trading hour.
+Logs must allow deterministic reconstruction.
 
 ---
 
-# 12. PRODUCTION SAFETY REQUIREMENTS
+# 11. PRODUCTION SAFETY REQUIREMENTS
 
-Before enabling live trading:
+Before live capital scaling:
 
-- Paper trading must run for minimum 30 days.
-- Backtest must pass performance validation.
-- Risk halting must be tested.
-- Kill switch must be tested.
-- Order retry logic must be tested.
-
-Live trading must begin with minimal capital allocation.
+- paper/live shadow validations
+- risk/kill-switch drills
+- replay parity checks
+- profile governance checks
 
 ---
 
-# 13. VERSION CONTROL REQUIREMENTS
+# 12. PRIORITY ORDER
 
-- All changes must be committed via Git.
-- Commit messages must describe financial impact.
-- Major architecture changes require version tagging.
-- Model versions must be registered via MLflow.
-
----
-
-# 14. PRIORITY ORDER
-
-When conflicts arise, priority order is:
+When conflicts arise:
 
 1. Capital Preservation
 2. Deterministic Behavior
 3. Risk Enforcement
-4. Backtest Integrity
-5. Performance Optimization
+4. Backtest/Replay Integrity
+5. Optimization
 
 ---
 

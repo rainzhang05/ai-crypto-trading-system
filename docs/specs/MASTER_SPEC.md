@@ -1,363 +1,169 @@
 # AI CRYPTO TRADING SYSTEM
 ## MASTER TECHNICAL ARCHITECTURE & PRODUCTION SPECIFICATION
-### Quantitative Core – All Models Active
-### Google Cloud Platform Deployment
+Version: 1.1
+Status: AUTHORITATIVE
 
 ---
 
 # 1. Executive Overview
 
-This document defines the complete production-grade architecture for the AI Crypto Trading System.
+This repository defines a production-grade deterministic quantitative crypto trading system.
 
-The system:
+System goals:
 
-- Operates on Kraken Spot markets
-- Uses strictly quantitative market data
-- Employs ensemble machine learning (tree-based + deep learning)
-- Runs hourly prediction cycles
-- Enforces strict capital preservation rules
-- Is built for eventual commercialization
+- continuous live prediction/evaluation/trading
+- strict capital preservation
+- adaptive campaign management (short and long lifecycle support)
+- deterministic replay and audit
 
-This version excludes LLM-driven trading logic.
+Current state:
 
-Primary Objective:
+- Phase 0-2 deterministic core and replay scaffolding are completed.
+- Strategy logic in live adaptive form is specified and ready for implementation phases.
 
-Generate consistent risk-adjusted returns while maintaining strict capital preservation and a maximum portfolio drawdown of 20%.
+Authoritative strategy logic:
 
-Current Build State (as of 2026-03-01 UTC):
-- Phase 1A completed.
-- Phase 1B completed.
-- Phase 1C completed (including Revision C repair + trigger drift correction).
-- Deterministic core schema is now aligned with walk-forward lineage gates, activation binding, and replay-critical hash hardening.
-- Phase 1D completed (deterministic execution runtime, append-only writer enforcement, activation/risk runtime gates, replay harness integration, replay CLI availability, and validation closure).
-- Phase 2 completed (snapshot boundary loading, canonical serialization, deterministic hash DAG recomputation, failure classification, replay comparison engine, deterministic replay tool, governance validation gate).
-- Phase 3 is unblocked to start.
+- `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
 
 ---
 
-# 2. Trading Environment & Constraints
+# 2. Trading Environment & Core Constraints
 
-Exchange: Kraken Spot  
-No leverage  
-No margin  
-No borrowing  
-Long-only spot positions  
+- Venue: Kraken Spot
+- Long-only (no margin, no borrowing, no leverage)
+- Risk controls enforced pre-order
+- All decision actions logged with reason codes
 
-Order Execution:
-- Limit-first logic
-- Controlled fallback to market orders
+Exposure/position controls:
 
-Trading Fee:
-- 0.4% per trade
-- 0.8% round-trip
-
-Limits:
-- Maximum concurrent positions: 10
-- Maximum total portfolio exposure: 20%
-- Hard maximum drawdown: 20%
+- Defaults exist, but values are profile-configurable.
+- `max_total_exposure` and `max_cluster_exposure` must support:
+  - percent-of-portfolio mode
+  - absolute-amount mode
 
 ---
 
-# 3. Asset Universe
+# 3. Data and Feature Contract
 
-Tradable assets must:
-
-- Be listed on Kraken
-- Pass liquidity filters
-- Exclude stablecoins
-- Exclude meme coins
-- Exclude low-liquidity assets
-
-Liquidity Filters:
-- Minimum daily volume threshold
-- Maximum bid-ask spread threshold
-
-Risk Controls:
-- 30-day rolling correlation matrix
-- Cluster-based exposure caps
-- BTC beta monitoring
+- Historical-only features (no leakage)
+- Deterministic feature generation
+- Timestamp integrity and replay compatibility
+- Multi-scale features are allowed; no mandatory fixed holding window assumptions
 
 ---
 
-# 4. Infrastructure & DevOps (Google Cloud Platform)
+# 4. Model Architecture
 
-Cloud Provider: Google Cloud Platform (GCP)
+Required model families:
 
-Core Components:
+- tree models (XGBoost, LightGBM, Random Forest)
+- sequence models (LSTM, Transformer)
+- regime classifier
+- meta-learner/ensemble combiner
 
-- Cloud Run – Backend container deployment
-- Cloud SQL (PostgreSQL) – Primary database
-- Cloud Storage (GCS) – Raw data and model artifacts
-- Artifact Registry – Docker image storage
-- Secret Manager – Secure API key storage
-- Cloud Scheduler – Hourly execution trigger
-- Cloud Logging – Centralized logs
-- Cloud Monitoring – Observability
+Training/inference requirements:
 
-Containerization: Docker  
-Version Control: GitHub  
-CI/CD: GitHub Actions → GCP deployment  
-Model Registry: MLflow  
-
-All secrets must be stored in Secret Manager.
-
-No credentials may be hardcoded.
+- walk-forward validation
+- reproducible model lineage
+- drift-aware retraining policy
 
 ---
 
-# 5. Data Sources
+# 5. Live Decision Framework
 
-Primary Market Data:
-- Kraken API
+Decisioning is continuous and event-driven.
 
-Supplementary Reference Data:
-- Binance (informational only)
-- Coinbase (informational only)
+Decision triggers include:
 
-All data must:
-- Be timestamp-aligned
-- Be stored raw before transformation
-- Avoid forward-looking bias
+- market data changes
+- liquidity/order-book changes
+- position and risk state changes
+- liveness heartbeat fallback
 
-Minimum historical window:
-- 1 year minimum
-- Preferred 3 years
+No fixed global strategy update interval is required.
 
----
+Forecast-horizon policy:
 
-# 6. Feature Engineering Framework
-
-All features must be deterministic and reproducible.
-
-## Momentum Features
-- 1h return
-- 4h return
-- 24h return
-- Rolling momentum slope
-
-## Volatility Features
-- ATR (14)
-- Rolling standard deviation
-- Volatility regime flag
-
-## Liquidity Features
-- Volume surge ratio
-- Spread widening indicator
-
-## Market Structure
-- Breakout detection
-- Mean reversion distance
-- Higher high / lower low flags
-
-## Cross-Asset Metrics
-- BTC beta
-- Rolling correlation to BTC
-- Market breadth signal
-
-No feature may use future information.
+- model horizons may exist internally
+- horizons are not mandatory holding-time limits
+- runtime decisions are always based on latest prediction state
 
 ---
 
-# 7. Model Architecture
+# 6. Strategy Behavior
 
-All models active from deployment.
+Required behavior:
 
-## 7.1 Tree-Based Models
-- XGBoost
-- LightGBM
-- Random Forest
+1. Prediction-led entry gating (avoid entering when near-term downside is likely).
+2. Dip-aware entry behavior (enter after favorable drop-and-recovery setup when predicted).
+3. Tactical profit realization (partial exits) during campaign life.
+4. Tactical re-entry when local edge recovers.
+5. Final exit when persistent negative outlook and weak rebound probability dominate.
 
-## 7.2 Deep Learning Models
-- LSTM
-- Transformer
-
-## 7.3 Regime Classifier
-Classifies:
-- Trending
-- Range
-- High-volatility
-- Crash regimes
-
-## 7.4 Meta-Learner
-Stacking ensemble combining:
-- Tree outputs
-- Deep model outputs
-- Regime state
-
-Final trade decisions derived exclusively from meta-learner output.
+Strategy must not rely on fixed timer exits or single loss-threshold-only exits.
 
 ---
 
-# 8. Prediction Framework
+# 7. Risk Management Framework
 
-Prediction Horizons:
-- 1 hour
-- 4 hours
-- 24 hours
+Risk policy is profile-driven with governed defaults.
 
-Primary Execution Cycle:
-- Hourly
+Must support configurable:
 
-Outputs per asset:
-- Probability of upward movement
-- Expected return
+- max concurrent positions
+- total exposure mode/value
+- cluster exposure mode/value
+- strategy sensitivity and persistence controls
 
-All predictions must be logged.
+Portfolio drawdown controls remain mandatory for new-risk admission.
 
----
-
-# 9. Strategy Engine
-
-Entry Conditions:
-- Confidence threshold met
-- Expected return > fee + slippage
-- Risk constraints satisfied
-
-Exit Conditions:
-- Stop-loss triggered
-- Take-profit reached
-- Signal reversal
-- Time-based exit
-
-Position Sizing:
-- Volatility-adjusted
-- Base 2% of portfolio value
-
-Cluster exposure caps enforced.
+Existing positions must still be managed adaptively by prediction-led logic, including severe-loss recovery analysis.
 
 ---
 
-# 10. Risk Management Framework
+# 8. Severe Loss Recovery Behavior
 
-## Drawdown Rules
+When an open position is deeply adverse:
 
-10% drawdown:
-- Reduce base risk fraction
+- do not force panic liquidation solely on threshold breach
+- continuously evaluate rebound-vs-continuation outlook
+- choose hold / partial de-risk / full exit according to predicted persistence risk
 
-15% drawdown:
-- Reduce exposure and position count
-
-20% drawdown:
-- Immediate halt of new trades
-- Manual review required
-
-## Kill Switch Conditions
-
-Trigger on:
-- Exchange API instability
-- Spread anomaly
-- Volatility spike
-- Data integrity failure
-
-Kill switch prevents new entries.
+This behavior is mandatory and documented in the trading logic spec.
 
 ---
 
-# 11. Backtesting Engine
+# 9. Execution and Accounting
 
-Backtesting must:
+Execution must:
 
-- Use hourly data
-- Include Kraken fee modeling
-- Include slippage modeling
-- Enforce risk rules
-- Enforce exposure caps
-- Enforce drawdown logic
-- Use walk-forward validation
-- Avoid static train/test splits
-- Avoid lookahead bias
-
-Backtest logic must match live logic exactly.
+- apply active profile constraints deterministically
+- enforce no-leverage and exposure rules
+- log every action and rejection reason
+- preserve append-only accounting and replay integrity
 
 ---
 
-# 12. Execution Engine
+# 10. Replay and Determinism
 
-Must:
+The system must remain replay-authoritative:
 
-- Validate capital before order
-- Recalculate volatility-adjusted size
-- Log order attempts
-- Log partial fills
-- Log cancellations
-- Retry failed API calls
-- Reconcile portfolio state hourly
-
-Execution must never bypass risk layer.
+- deterministic context loading
+- deterministic strategy evaluation
+- deterministic action emission
+- complete traceability of model/profile inputs
 
 ---
 
-# 13. Monitoring & Dashboard
+# 11. Governance and Policy References
 
-Backend:
-- FastAPI
+Primary governance documents:
 
-Frontend:
-- Next.js
-
-Dashboard displays:
-- Portfolio value
-- Open positions
-- Drawdown
-- Risk state
-- Model outputs
-- Trade history
-
-All logs must allow full hour reconstruction.
-
----
-
-# 14. Performance Targets
-
-Target Sharpe Ratio:
-1.2 – 1.8
-
-Target Annual Return:
-20% – 60%
-
-Maximum Monthly Drawdown:
-<10%
-
-Hard Stop Drawdown:
-20%
-
----
-
-# 15. Commercialization Roadmap
-
-Phase 1:
-- Proprietary trading
-- Verified performance logs
-
-Phase 2:
-- Multi-user support
-- Authentication layer
-
-Phase 3:
-- SaaS subscription model
-
-All commercialization requires:
-- Regulatory review
-- Audit trail integrity
-- Performance transparency
-
----
-
-# 16. Governance Enforcement
-
-All development governed by:
-
-- PROJECT_GOVERNANCE.md
-- ARCHITECT_DECISIONS.md
-- MODEL_ASSUMPTIONS.md
-- RISK_RULES.md
-- ARCHITECT_PROMPT.md
-- IMPLEMENTATION_PROMPT.md
-- AUDITOR_PROMPT.md
-
-No structural change is valid without logging.
-
-Capital preservation overrides optimization.
+- `docs/specs/PROJECT_GOVERNANCE.md`
+- `docs/specs/RISK_RULES.md`
+- `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+- `docs/specs/SCHEMA_DDL_MASTER.md`
+- `docs/specs/ARCHITECT_DECISIONS.md`
 
 ---
 
