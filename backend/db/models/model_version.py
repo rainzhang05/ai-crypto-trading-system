@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -11,6 +12,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
@@ -21,10 +23,11 @@ from sqlalchemy import (
     desc,
     text,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.db.base import Base
-from backend.db.enums import horizon_enum, model_role_enum
+from backend.db.enums import horizon_enum, model_role_enum, run_mode_enum
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +97,18 @@ class ModelTrainingWindow(Base):
     __table_args__ = (
         PrimaryKeyConstraint("training_window_id", name="pk_model_training_window"),
         UniqueConstraint(
+            "backtest_run_id",
             "model_version_id",
             "fold_index",
             "horizon",
-            name="uq_model_training_window_model_fold_horizon",
+            name="uq_model_training_window_run_model_fold_horizon",
+        ),
+        ForeignKeyConstraint(
+            ["backtest_run_id", "fold_index"],
+            ["backtest_fold_result.backtest_run_id", "backtest_fold_result.fold_index"],
+            name="fk_model_training_window_backtest_fold",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
         ),
         CheckConstraint(
             "fold_index >= 0",
@@ -121,6 +132,7 @@ class ModelTrainingWindow(Base):
         Identity(always=True),
         primary_key=True,
     )
+    backtest_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     model_version_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey(
@@ -137,3 +149,69 @@ class ModelTrainingWindow(Base):
     train_end_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     valid_start_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     valid_end_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    training_window_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+
+
+class ModelActivationGate(Base):
+    """Approved/revoked model activations bound to run mode and validation run."""
+
+    __tablename__ = "model_activation_gate"
+    __table_args__ = (
+        PrimaryKeyConstraint("activation_id", name="pk_model_activation_gate"),
+        UniqueConstraint(
+            "activation_id",
+            "model_version_id",
+            "run_mode",
+            name="uq_model_activation_gate_activation_model_mode",
+        ),
+        CheckConstraint(
+            "status IN ('APPROVED', 'REVOKED')",
+            name="ck_model_activation_gate_status",
+        ),
+        Index(
+            "uqix_model_activation_gate_one_approved",
+            "model_version_id",
+            "run_mode",
+            unique=True,
+            postgresql_where=text("status = 'APPROVED'"),
+        ),
+    )
+
+    activation_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(always=True),
+        primary_key=True,
+    )
+    model_version_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey(
+            "model_version.model_version_id",
+            name="fk_model_activation_gate_model",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
+    validation_backtest_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "backtest_run.backtest_run_id",
+            name="fk_model_activation_gate_backtest",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
+    validation_window_end_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    approved_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    approval_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)

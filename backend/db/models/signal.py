@@ -10,10 +10,12 @@ from decimal import Decimal
 from sqlalchemy import (
     CHAR,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    BigInteger,
     Numeric,
     PrimaryKeyConstraint,
     SmallInteger,
@@ -51,17 +53,39 @@ class TradeSignal(Base):
             "asset_id",
             name="uq_trade_signal_identity",
         ),
+        UniqueConstraint(
+            "signal_id",
+            "cluster_membership_id",
+            name="uq_trade_signal_signal_cluster",
+        ),
+        UniqueConstraint(
+            "signal_id",
+            "risk_state_run_id",
+            name="uq_trade_signal_signal_riskrun",
+        ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_trade_signal_run_context",
+            ["run_id", "account_id", "run_mode", "hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.hour_ts_utc"],
+            name="fk_trade_signal_run_context_run_account_mode_hour",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
-            ["run_mode", "account_id", "risk_state_hour_ts_utc"],
-            ["risk_hourly_state.run_mode", "risk_hourly_state.account_id", "risk_hourly_state.hour_ts_utc"],
-            name="fk_trade_signal_risk_hourly_state",
+            ["run_mode", "account_id", "risk_state_hour_ts_utc", "risk_state_run_id"],
+            [
+                "risk_hourly_state_identity.run_mode",
+                "risk_hourly_state_identity.account_id",
+                "risk_hourly_state_identity.hour_ts_utc",
+                "risk_hourly_state_identity.source_run_id",
+            ],
+            name="fk_trade_signal_risk_state_exact_identity",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["cluster_membership_id"],
+            ["asset_cluster_membership.membership_id"],
+            name="fk_trade_signal_cluster_membership",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
@@ -76,6 +100,10 @@ class TradeSignal(Base):
         CheckConstraint(
             "risk_state_hour_ts_utc = hour_ts_utc",
             name="ck_trade_signal_risk_hour_match",
+        ),
+        CheckConstraint(
+            "risk_state_hour_ts_utc <= hour_ts_utc",
+            name="ck_trade_signal_risk_not_future",
         ),
         CheckConstraint(
             "direction IN ('LONG', 'FLAT')",
@@ -108,6 +136,14 @@ class TradeSignal(Base):
         CheckConstraint(
             "action <> 'ENTER' OR expected_return > (assumed_fee_rate + assumed_slippage_rate)",
             name="ck_trade_signal_enter_return_gt_cost",
+        ),
+        CheckConstraint(
+            "action <> 'ENTER' OR expected_return > expected_cost_rate",
+            name="ck_trade_signal_enter_cost_gate",
+        ),
+        CheckConstraint(
+            "net_edge = (expected_return - expected_cost_rate)",
+            name="ck_trade_signal_net_edge_formula",
         ),
         CheckConstraint(
             "action <> 'ENTER' OR direction = 'LONG'",
@@ -160,8 +196,17 @@ class TradeSignal(Base):
     expected_return: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     assumed_fee_rate: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
     assumed_slippage_rate: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
+    expected_cost_rate: Mapped[Decimal] = mapped_column(
+        Numeric(10, 6),
+        Computed("assumed_fee_rate + assumed_slippage_rate", persisted=True),
+        nullable=False,
+    )
     net_edge: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     target_position_notional: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     position_size_fraction: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
     risk_state_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     decision_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    risk_state_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    cluster_membership_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    upstream_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)

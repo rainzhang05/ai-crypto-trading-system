@@ -8,8 +8,10 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    CHAR,
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -58,9 +60,23 @@ class OrderRequest(Base):
             name="uq_order_request_identity",
         ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_order_request_run_context",
+            ["run_id", "account_id", "run_mode", "origin_hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.origin_hour_ts_utc"],
+            name="fk_order_request_run_context_origin",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["signal_id", "cluster_membership_id"],
+            ["trade_signal.signal_id", "trade_signal.cluster_membership_id"],
+            name="fk_order_request_signal_cluster",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["signal_id", "risk_state_run_id"],
+            ["trade_signal.signal_id", "trade_signal.risk_state_run_id"],
+            name="fk_order_request_signal_riskrun",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
@@ -95,6 +111,14 @@ class OrderRequest(Base):
         CheckConstraint(
             "risk_check_passed = TRUE OR status = 'REJECTED'",
             name="ck_order_request_risk_gate",
+        ),
+        CheckConstraint(
+            "date_trunc('hour', origin_hour_ts_utc) = origin_hour_ts_utc",
+            name="ck_order_request_origin_hour_aligned",
+        ),
+        CheckConstraint(
+            "request_ts_utc >= origin_hour_ts_utc",
+            name="ck_order_request_request_after_origin",
         ),
         Index(
             "idx_order_request_account_request_ts_desc",
@@ -163,6 +187,11 @@ class OrderRequest(Base):
         ),
         nullable=False,
     )
+    origin_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    risk_state_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    cluster_membership_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    parent_signal_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
 
 
 class OrderFill(Base):
@@ -198,9 +227,9 @@ class OrderFill(Base):
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_order_fill_run_context",
+            ["run_id", "account_id", "run_mode", "origin_hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.origin_hour_ts_utc"],
+            name="fk_order_fill_run_context_origin",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
@@ -235,6 +264,22 @@ class OrderFill(Base):
         CheckConstraint(
             "liquidity_flag IN ('MAKER', 'TAKER', 'UNKNOWN')",
             name="ck_order_fill_liquidity_flag",
+        ),
+        CheckConstraint(
+            "date_trunc('hour', origin_hour_ts_utc) = origin_hour_ts_utc",
+            name="ck_order_fill_origin_hour_aligned",
+        ),
+        CheckConstraint(
+            "fill_ts_utc >= origin_hour_ts_utc",
+            name="ck_order_fill_fill_after_origin",
+        ),
+        CheckConstraint(
+            "fee_paid = fee_expected",
+            name="ck_order_fill_fee_formula",
+        ),
+        CheckConstraint(
+            "slippage_cost = fill_notional * realized_slippage_rate",
+            name="ck_order_fill_slippage_formula",
         ),
         Index(
             "idx_order_fill_account_fill_ts_desc",
@@ -282,6 +327,15 @@ class OrderFill(Base):
     fee_paid: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     fee_rate: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
     realized_slippage_rate: Mapped[Decimal] = mapped_column(Numeric(10, 6), nullable=False)
+    origin_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    fee_expected: Mapped[Decimal] = mapped_column(
+        Numeric(38, 18),
+        Computed("fill_notional * fee_rate", persisted=True),
+        nullable=False,
+    )
+    slippage_cost: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    parent_order_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     liquidity_flag: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -318,9 +372,9 @@ class PositionLot(Base):
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_position_lot_run_context",
+            ["run_id", "account_id", "run_mode", "origin_hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.origin_hour_ts_utc"],
+            name="fk_position_lot_run_context_origin",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
@@ -343,6 +397,14 @@ class PositionLot(Base):
         CheckConstraint(
             "remaining_qty >= 0 AND remaining_qty <= open_qty",
             name="ck_position_lot_remaining_range",
+        ),
+        CheckConstraint(
+            "date_trunc('hour', origin_hour_ts_utc) = origin_hour_ts_utc",
+            name="ck_position_lot_origin_hour_aligned",
+        ),
+        CheckConstraint(
+            "open_ts_utc >= origin_hour_ts_utc",
+            name="ck_position_lot_open_after_origin",
         ),
         Index(
             "idx_position_lot_account_asset_open_ts_desc",
@@ -384,6 +446,9 @@ class PositionLot(Base):
     open_notional: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     open_fee: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     remaining_qty: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    origin_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    parent_fill_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
 
 
 class ExecutedTrade(Base):
@@ -412,9 +477,9 @@ class ExecutedTrade(Base):
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_executed_trade_run_context",
+            ["run_id", "account_id", "run_mode", "origin_hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.origin_hour_ts_utc"],
+            name="fk_executed_trade_run_context_origin",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
@@ -448,6 +513,14 @@ class ExecutedTrade(Base):
         CheckConstraint(
             "net_pnl = gross_pnl - total_fee - total_slippage_cost",
             name="ck_executed_trade_net_pnl_formula",
+        ),
+        CheckConstraint(
+            "date_trunc('hour', origin_hour_ts_utc) = origin_hour_ts_utc",
+            name="ck_executed_trade_origin_hour_aligned",
+        ),
+        CheckConstraint(
+            "exit_ts_utc >= origin_hour_ts_utc",
+            name="ck_executed_trade_exit_after_origin",
         ),
         Index(
             "idx_executed_trade_account_exit_ts_desc",
@@ -497,6 +570,9 @@ class ExecutedTrade(Base):
     total_fee: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     total_slippage_cost: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     holding_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+    origin_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    parent_lot_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
 
 
 class CashLedger(Base):
@@ -514,10 +590,16 @@ class CashLedger(Base):
             "event_type",
             name="uq_cash_ledger_idempotency",
         ),
+        UniqueConstraint(
+            "account_id",
+            "run_mode",
+            "ledger_seq",
+            name="uq_cash_ledger_account_mode_seq",
+        ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_cash_ledger_run_context",
+            ["run_id", "account_id", "run_mode", "origin_hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.origin_hour_ts_utc"],
+            name="fk_cash_ledger_run_context_origin",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
@@ -540,6 +622,22 @@ class CashLedger(Base):
         CheckConstraint(
             "balance_after >= 0",
             name="ck_cash_ledger_balance_nonneg",
+        ),
+        CheckConstraint(
+            "date_trunc('hour', origin_hour_ts_utc) = origin_hour_ts_utc",
+            name="ck_cash_ledger_origin_hour_aligned",
+        ),
+        CheckConstraint(
+            "event_ts_utc >= origin_hour_ts_utc",
+            name="ck_cash_ledger_event_after_origin",
+        ),
+        CheckConstraint(
+            "balance_after = balance_before + delta_cash",
+            name="ck_cash_ledger_balance_chain",
+        ),
+        CheckConstraint(
+            "(ledger_seq = 1 AND prev_ledger_hash IS NULL) OR (ledger_seq > 1 AND prev_ledger_hash IS NOT NULL)",
+            name="ck_cash_ledger_prev_hash_presence",
         ),
         Index(
             "idx_cash_ledger_account_event_ts_desc",
@@ -574,4 +672,10 @@ class CashLedger(Base):
     ref_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     delta_cash: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     balance_after: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
-    
+    origin_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ledger_seq: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    balance_before: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    prev_ledger_hash: Mapped[str | None] = mapped_column(CHAR(64))
+    economic_event_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    ledger_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)

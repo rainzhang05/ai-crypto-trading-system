@@ -8,6 +8,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    CHAR,
     CheckConstraint,
     Computed,
     DateTime,
@@ -104,6 +105,7 @@ class MarketOhlcvHourly(Base):
         ),
         nullable=False,
     )
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
 
 
 class OrderBookSnapshot(Base):
@@ -191,3 +193,4 @@ class OrderBookSnapshot(Base):
         ),
         nullable=False,
     )
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)

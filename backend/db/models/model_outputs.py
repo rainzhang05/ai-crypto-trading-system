@@ -14,11 +14,13 @@ from sqlalchemy import (
     ForeignKey,
     ForeignKeyConstraint,
     Index,
+    Integer,
     Numeric,
     PrimaryKeyConstraint,
     SmallInteger,
     BigInteger,
     Text,
+    UniqueConstraint,
     desc,
     text,
 )
@@ -42,10 +44,56 @@ class RegimeOutput(Base):
             "hour_ts_utc",
             name="pk_regime_output",
         ),
+        UniqueConstraint(
+            "run_id",
+            "account_id",
+            "run_mode",
+            "asset_id",
+            "model_version_id",
+            "hour_ts_utc",
+            name="uq_regime_output_identity_run_account_mode_hour",
+        ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_regime_output_run_context",
+            ["run_id", "account_id", "run_mode", "hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.hour_ts_utc"],
+            name="fk_regime_output_run_context_run_account_mode_hour",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["activation_id", "model_version_id", "run_mode"],
+            [
+                "model_activation_gate.activation_id",
+                "model_activation_gate.model_version_id",
+                "model_activation_gate.run_mode",
+            ],
+            name="fk_regime_output_activation",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["lineage_backtest_run_id", "lineage_fold_index"],
+            ["backtest_fold_result.backtest_run_id", "backtest_fold_result.fold_index"],
+            name="fk_regime_output_lineage_fold",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["lineage_backtest_run_id", "model_version_id", "lineage_fold_index", "lineage_horizon"],
+            [
+                "model_training_window.backtest_run_id",
+                "model_training_window.model_version_id",
+                "model_training_window.fold_index",
+                "model_training_window.horizon",
+            ],
+            name="fk_regime_output_lineage_fold_horizon",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["training_window_id"],
+            ["model_training_window.training_window_id"],
+            name="fk_regime_output_training_window",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
@@ -61,6 +109,15 @@ class RegimeOutput(Base):
             "regime_probability >= 0 AND regime_probability <= 1",
             name="ck_regime_output_probability_range",
         ),
+        CheckConstraint(
+            "(run_mode = 'BACKTEST' AND training_window_id IS NOT NULL "
+            "AND lineage_backtest_run_id IS NOT NULL AND lineage_fold_index IS NOT NULL "
+            "AND lineage_horizon IS NOT NULL AND activation_id IS NULL) OR "
+            "(run_mode IN ('PAPER', 'LIVE') AND training_window_id IS NULL "
+            "AND lineage_backtest_run_id IS NULL AND lineage_fold_index IS NULL "
+            "AND lineage_horizon IS NULL AND activation_id IS NOT NULL)",
+            name="ck_regime_output_mode_lineage_activation",
+        ),
         Index(
             "idx_regime_output_label_hour_desc",
             "regime_label",
@@ -75,6 +132,16 @@ class RegimeOutput(Base):
 
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
+    account_id: Mapped[int] = mapped_column(
+        SmallInteger,
+        ForeignKey(
+            "account.account_id",
+            name="fk_regime_output_account",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
     asset_id: Mapped[int] = mapped_column(
         SmallInteger,
         ForeignKey(
@@ -104,6 +171,13 @@ class RegimeOutput(Base):
     regime_label: Mapped[str] = mapped_column(Text, nullable=False)
     regime_probability: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
     input_feature_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    upstream_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    training_window_id: Mapped[int | None] = mapped_column(BigInteger)
+    lineage_backtest_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    lineage_fold_index: Mapped[int | None] = mapped_column(Integer)
+    lineage_horizon: Mapped[str | None] = mapped_column(horizon_enum)
+    activation_id: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class ModelPrediction(Base):
@@ -119,16 +193,73 @@ class ModelPrediction(Base):
             "hour_ts_utc",
             name="pk_model_prediction",
         ),
+        UniqueConstraint(
+            "run_id",
+            "account_id",
+            "run_mode",
+            "asset_id",
+            "horizon",
+            "model_version_id",
+            "hour_ts_utc",
+            name="uq_model_prediction_identity_run_account_mode_hour",
+        ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_model_prediction_run_context",
+            ["run_id", "account_id", "run_mode", "hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.hour_ts_utc"],
+            name="fk_model_prediction_run_context_run_account_mode_hour",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["activation_id", "model_version_id", "run_mode"],
+            [
+                "model_activation_gate.activation_id",
+                "model_activation_gate.model_version_id",
+                "model_activation_gate.run_mode",
+            ],
+            name="fk_model_prediction_activation",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["lineage_backtest_run_id", "lineage_fold_index"],
+            ["backtest_fold_result.backtest_run_id", "backtest_fold_result.fold_index"],
+            name="fk_model_prediction_lineage_fold",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["lineage_backtest_run_id", "model_version_id", "lineage_fold_index", "lineage_horizon"],
+            [
+                "model_training_window.backtest_run_id",
+                "model_training_window.model_version_id",
+                "model_training_window.fold_index",
+                "model_training_window.horizon",
+            ],
+            name="fk_model_prediction_lineage_fold_horizon",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["training_window_id"],
+            ["model_training_window.training_window_id"],
+            name="fk_model_prediction_training_window",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
         CheckConstraint(
             "date_trunc('hour', hour_ts_utc) = hour_ts_utc",
             name="ck_model_prediction_hour_aligned",
+        ),
+        CheckConstraint(
+            "(run_mode = 'BACKTEST' AND training_window_id IS NOT NULL "
+            "AND lineage_backtest_run_id IS NOT NULL AND lineage_fold_index IS NOT NULL "
+            "AND lineage_horizon IS NOT NULL AND activation_id IS NULL "
+            "AND horizon = lineage_horizon) OR "
+            "(run_mode IN ('PAPER', 'LIVE') AND training_window_id IS NULL "
+            "AND lineage_backtest_run_id IS NULL AND lineage_fold_index IS NULL "
+            "AND lineage_horizon IS NULL AND activation_id IS NOT NULL)",
+            name="ck_model_prediction_mode_lineage_activation",
         ),
         CheckConstraint(
             "prob_up >= 0 AND prob_up <= 1",
@@ -158,6 +289,16 @@ class ModelPrediction(Base):
 
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
+    account_id: Mapped[int] = mapped_column(
+        SmallInteger,
+        ForeignKey(
+            "account.account_id",
+            name="fk_model_prediction_account",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
     asset_id: Mapped[int] = mapped_column(
         SmallInteger,
         ForeignKey(
@@ -190,6 +331,13 @@ class ModelPrediction(Base):
     prob_up: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
     expected_return: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     input_feature_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    upstream_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    training_window_id: Mapped[int | None] = mapped_column(BigInteger)
+    lineage_backtest_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    lineage_fold_index: Mapped[int | None] = mapped_column(Integer)
+    lineage_horizon: Mapped[str | None] = mapped_column(horizon_enum)
+    activation_id: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class MetaLearnerComponent(Base):
@@ -206,10 +354,21 @@ class MetaLearnerComponent(Base):
             "hour_ts_utc",
             name="pk_meta_learner_component",
         ),
+        UniqueConstraint(
+            "run_id",
+            "account_id",
+            "run_mode",
+            "asset_id",
+            "horizon",
+            "meta_model_version_id",
+            "base_model_version_id",
+            "hour_ts_utc",
+            name="uq_meta_learner_component_identity_run_account_mode_hour",
+        ),
         ForeignKeyConstraint(
-            ["run_id", "run_mode", "hour_ts_utc"],
-            ["run_context.run_id", "run_context.run_mode", "run_context.hour_ts_utc"],
-            name="fk_meta_component_run_context",
+            ["run_id", "account_id", "run_mode", "hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.hour_ts_utc"],
+            name="fk_meta_learner_component_run_context_run_account_mode_hour",
             onupdate="RESTRICT",
             ondelete="RESTRICT",
         ),
@@ -239,6 +398,16 @@ class MetaLearnerComponent(Base):
 
     run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
+    account_id: Mapped[int] = mapped_column(
+        SmallInteger,
+        ForeignKey(
+            "account.account_id",
+            name="fk_meta_learner_component_account",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        nullable=False,
+    )
     asset_id: Mapped[int] = mapped_column(
         SmallInteger,
         ForeignKey(
@@ -281,3 +450,4 @@ class MetaLearnerComponent(Base):
     base_prob_up: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
     base_expected_return: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     component_weight: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)

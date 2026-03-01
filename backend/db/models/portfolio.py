@@ -133,6 +133,7 @@ class PortfolioHourlyState(Base):
     )
     source_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     reconciliation_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
 
 
 class PositionHourlyState(Base):
@@ -231,3 +232,26 @@ class PositionHourlyState(Base):
     realized_pnl_cum: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     exposure_pct: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
     source_run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+
+
+class PortfolioHourlyStateIdentity(Base):
+    """Identity table for strict FK binding of portfolio hourly rows."""
+
+    __tablename__ = "portfolio_hourly_state_identity"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "run_mode",
+            "account_id",
+            "hour_ts_utc",
+            name="pk_portfolio_hourly_state_identity",
+        ),
+        CheckConstraint(
+            "date_trunc('hour', hour_ts_utc) = hour_ts_utc",
+            name="ck_portfolio_hourly_state_identity_hour_aligned",
+        ),
+    )
+
+    run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
+    account_id: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

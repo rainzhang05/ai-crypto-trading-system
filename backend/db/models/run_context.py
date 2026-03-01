@@ -8,9 +8,11 @@ from datetime import datetime
 
 from sqlalchemy import (
     CHAR,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     BigInteger,
@@ -43,14 +45,32 @@ class RunContext(Base):
         name="uq_run_context_account_mode_hour",
         ),
         UniqueConstraint(
-        "run_id",
-        "run_mode",
-        "hour_ts_utc",
-        name="uq_run_context_run_mode_hour",
+            "run_id",
+            "run_mode",
+            "hour_ts_utc",
+            name="uq_run_context_run_mode_hour",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "account_id",
+            "run_mode",
+            "hour_ts_utc",
+            name="uq_run_context_run_account_mode_hour",
+        ),
+        UniqueConstraint(
+            "run_id",
+            "account_id",
+            "run_mode",
+            "origin_hour_ts_utc",
+            name="uq_run_context_run_account_mode_origin_hour",
         ),
         CheckConstraint(
             "date_trunc('hour', hour_ts_utc) = hour_ts_utc",
             name="ck_run_context_hour_aligned",
+        ),
+        CheckConstraint(
+            "date_trunc('hour', origin_hour_ts_utc) = origin_hour_ts_utc",
+            name="ck_run_context_origin_hour_aligned",
         ),
         CheckConstraint("cycle_seq >= 0", name="ck_run_context_cycle_seq_pos"),
         CheckConstraint(
@@ -108,8 +128,63 @@ class RunContext(Base):
         server_default=text("now()"),
     )
     completed_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    origin_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    run_seed_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    context_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    replay_root_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     status: Mapped[str] = mapped_column(
         Text,
         nullable=False,
         server_default=text("'STARTED'"),
     )
+
+
+class ReplayManifest(Base):
+    """Canonical replay manifest root hash for deterministic replay parity."""
+
+    __tablename__ = "replay_manifest"
+    __table_args__ = (
+        PrimaryKeyConstraint("run_id", name="pk_replay_manifest"),
+        ForeignKeyConstraint(
+            ["run_id", "account_id", "run_mode", "origin_hour_ts_utc"],
+            ["run_context.run_id", "run_context.account_id", "run_context.run_mode", "run_context.origin_hour_ts_utc"],
+            name="fk_replay_manifest_run_context",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+    )
+
+    run_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    account_id: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    run_mode: Mapped[str] = mapped_column(run_mode_enum, nullable=False)
+    origin_hour_ts_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    run_seed_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    replay_root_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    authoritative_row_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    generated_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
+class SchemaMigrationControl(Base):
+    """Schema lock rows used to enforce migration gating rules."""
+
+    __tablename__ = "schema_migration_control"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "migration_name",
+            name="schema_migration_control_pkey",
+        ),
+    )
+
+    migration_name: Mapped[str] = mapped_column(Text, nullable=False)
+    locked: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    lock_reason: Mapped[str] = mapped_column(Text, nullable=False)
+    locked_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+    unlocked_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

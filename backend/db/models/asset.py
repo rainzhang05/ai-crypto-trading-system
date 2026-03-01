@@ -7,9 +7,12 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    CHAR,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Numeric,
@@ -17,6 +20,7 @@ from sqlalchemy import (
     SmallInteger,
     Text,
     UniqueConstraint,
+    desc,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -68,3 +72,83 @@ class Asset(Base):
         nullable=False,
     )
     delisted_at_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CorrelationCluster(Base):
+    """Reference correlation cluster definitions for concentration controls."""
+
+    __tablename__ = "correlation_cluster"
+    __table_args__ = (
+        PrimaryKeyConstraint("cluster_id", name="pk_correlation_cluster"),
+        UniqueConstraint("cluster_code", name="uq_correlation_cluster_code"),
+        CheckConstraint(
+            "length(btrim(cluster_code)) > 0",
+            name="ck_correlation_cluster_code_not_blank",
+        ),
+    )
+
+    cluster_id: Mapped[int] = mapped_column(
+        SmallInteger,
+        Identity(always=True),
+        primary_key=True,
+    )
+    cluster_code: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("TRUE"),
+    )
+    created_at_utc: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+
+class AssetClusterMembership(Base):
+    """Asset-to-cluster membership intervals used by risk and signal linkage."""
+
+    __tablename__ = "asset_cluster_membership"
+    __table_args__ = (
+        PrimaryKeyConstraint("membership_id", name="pk_asset_cluster_membership"),
+        UniqueConstraint(
+            "asset_id",
+            "effective_from_utc",
+            name="uq_asset_cluster_membership_asset_effective_from",
+        ),
+        ForeignKeyConstraint(
+            ["asset_id"],
+            ["asset.asset_id"],
+            name="fk_asset_cluster_membership_asset",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["cluster_id"],
+            ["correlation_cluster.cluster_id"],
+            name="fk_asset_cluster_membership_cluster",
+            onupdate="RESTRICT",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "effective_to_utc IS NULL OR effective_to_utc > effective_from_utc",
+            name="ck_asset_cluster_membership_window",
+        ),
+        Index(
+            "idx_asset_cluster_membership_asset_effective",
+            "asset_id",
+            desc("effective_from_utc"),
+        ),
+    )
+
+    membership_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(always=True),
+        primary_key=True,
+    )
+    asset_id: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    cluster_id: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    effective_from_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    effective_to_utc: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    membership_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)

@@ -86,6 +86,7 @@ class BacktestRun(Base):
         nullable=False,
     )
     random_seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
 
 
 class BacktestFoldResult(Base):
@@ -140,3 +141,4 @@ class BacktestFoldResult(Base):
     max_drawdown_pct: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
     net_return_pct: Mapped[Decimal] = mapped_column(Numeric(38, 18), nullable=False)
     win_rate: Mapped[Decimal] = mapped_column(Numeric(12, 10), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)

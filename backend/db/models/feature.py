@@ -161,3 +161,4 @@ class FeatureSnapshot(Base):
     source_window_start_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     source_window_end_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     input_data_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    row_hash: Mapped[str] = mapped_column(CHAR(64), nullable=False)
