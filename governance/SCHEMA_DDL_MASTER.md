@@ -1,9 +1,12 @@
 # AI CRYPTO TRADING SYSTEM
 ## MASTER SCHEMA DDL CONTRACT
-Version: 1.1  
-Status: LOCKED (CORRECTIONS INTEGRATED)  
+Version: 1.2  
+Status: LOCKED (PHASE 1C REVISION C APPLIED)  
 Scope: Production Trading Core  
 Database: PostgreSQL + TimescaleDB (GCP Cloud SQL)
+
+Canonical executable schema snapshot:
+- `/schema_bootstrap.sql` (regenerated from live `crypto_db` schema on 2026-03-01 UTC)
 
 ---
 
@@ -1315,6 +1318,35 @@ Symbols:
   - deterministic unique keys (`run_id`, `account_id`, `hour_ts_utc`)
   - immutable hashes (`config_hash`, `data_snapshot_hash`, `decision_hash`, `state_hash`)
   - append-only decision-path tables
+
+---
+
+## 7. PHASE 1C REVISION C APPLIED DELTA (AUTHORITATIVE STATE)
+
+The live schema includes the following Phase 1C Revision C repairs and hardening:
+
+- Deterministic account binding added and validated for:
+  - `model_prediction`
+  - `regime_output`
+  - `meta_learner_component`
+- Walk-forward structural lineage and activation gating added:
+  - `model_training_window.backtest_run_id`
+  - `model_training_window.training_window_hash`
+  - `model_activation_gate` table
+  - lineage and activation columns/constraints on `model_prediction` and `regime_output`
+  - deferred contamination exclusion triggers:
+    - `ctrg_model_prediction_walk_forward`
+    - `ctrg_regime_output_walk_forward`
+- Replay-critical hash surface hardened to `NOT NULL` across contract-critical tables/columns.
+- Canonical trigger/function names are in use (no residual `_v2` trigger or function names in public schema runtime paths).
+- Structural legality checks pass:
+  - no FK targets on hypertables
+  - no residual `_v2` relations
+
+For exact executable DDL, use:
+- `/schema_bootstrap.sql` (current-state bootstrap)
+- `/governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql` (historical repair blueprint)
+- `/governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql` (minimal drift-correction loop)
 
 ---
 

@@ -107,3 +107,50 @@ Target list checked (`feature_snapshot`, `model_prediction`, `meta_learner_compo
 ## Final Result
 - Migration result: **SUCCESS (Revision B resume completed)**
 - Contract action taken: **Abort-on-error honored at each failure point; lock held until full validation passed; unlocked only after validation success**
+
+---
+
+## REVISION C CLOSURE UPDATE
+
+### Revision C execution window
+- Repair execution start (UTC): `2026-03-01T05:25:14Z`
+- Repair execution stop (UTC): `2026-03-01T05:40:41Z`
+
+### Actions completed
+- Applied deterministic join/account binding constraints from `PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`.
+- Applied append-only completion + canonical validation function rebinding.
+- Applied walk-forward structural binding and activation-gate lineage constraints.
+- Applied replay-critical hash-surface NOT NULL hardening.
+- Executed minimal drift-correction loop for `_v2` trigger/function references:
+  - Rebound `order_request` and `risk_event` constraint triggers to canonical function names.
+  - Removed residual `_v2` function artifacts.
+
+### Post-repair validation
+All readiness checks returned zero violations:
+- `triggers_with_v2_refs_action_statement = 0`
+- `functions_with_v2_refs_blueprint_scope = 0`
+- `functions_named_with_v2_suffix = 0`
+- `residual_v2_relations = 0`
+- `no_fk_targets_on_hypertables = 0`
+- `nullable_replay_critical_hash_columns = 0`
+- `walk_forward_contamination_exclusion = 0`
+- `cross_account_isolation = 0`
+- `ledger_arithmetic_continuity = 0`
+- `cluster_cap_enforcement = 0`
+- `deterministic_replay_parity_mismatch_pairs = 0`
+
+### Updated trigger status
+Canonical trigger/function names active:
+- `order_request.ctrg_order_request_cluster_cap -> fn_enforce_cluster_cap_on_admission()`
+- `order_request.ctrg_order_request_risk_gate -> fn_enforce_runtime_risk_gate()`
+- `risk_event.ctrg_risk_event_parent_state_hash -> fn_validate_risk_event_parent_state_hash()`
+
+### Final lock state after closure
+- `migration_name`: `phase_1b_schema`
+- `locked`: `FALSE`
+- `locked_at_utc`: `2026-03-01 05:09:55.628399+00`
+- `unlocked_at_utc`: `2026-03-01 05:40:41.026994+00`
+
+### Revision C final result
+- **SUCCESS (Phase 1C deterministic contract implementation fully closed)**
+- **Phase 1D entry gate: OPEN**

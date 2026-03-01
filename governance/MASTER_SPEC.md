@@ -24,6 +24,13 @@ Primary Objective:
 
 Generate consistent risk-adjusted returns while maintaining strict capital preservation and a maximum portfolio drawdown of 20%.
 
+Current Build State (as of 2026-03-01 UTC):
+- Phase 1A completed.
+- Phase 1B completed.
+- Phase 1C completed (including Revision C repair + trigger drift correction).
+- Deterministic core schema is now aligned with walk-forward lineage gates, activation binding, and replay-critical hash hardening.
+- Phase 1D is unblocked and ready to start.
+
 ---
 
 # 2. Trading Environment & Constraints

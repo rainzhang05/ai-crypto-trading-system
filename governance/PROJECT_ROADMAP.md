@@ -76,7 +76,7 @@ Artifact:
 
 ---
 
-### Phase 1B — Schema Migration Blueprint (Architect)
+### Phase 1B — Schema Migration Blueprint (Architect) ✅ COMPLETED
 
 Deliverable:
 - governance/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md
@@ -90,7 +90,7 @@ Output:
 
 ---
 
-### Phase 1C — Schema Migration Implementation (Implementation Agent)
+### Phase 1C — Schema Migration Implementation (Implementation Agent) ✅ COMPLETED
 
 Tasks:
 - Execute DDL migration
@@ -106,9 +106,15 @@ Then:
 - Recompute ledger
 - Recompute risk states
 
+Status:
+- ✅ Revision B migration/cutover completed
+- ✅ Revision C schema repair completed
+- ✅ Revision C minimal drift-correction loop completed
+- ✅ Pre-1D readiness audit: all checks passing
+
 ---
 
-### Phase 1D — Deterministic Replay Validation
+### Phase 1D — Deterministic Replay Validation 🚧 READY TO START
 
 Build:
 - Replay CLI
@@ -340,6 +346,10 @@ Example:
 
 /governance/phases/phase_1_deterministic_contract/
     SCHEMA_MIGRATION_PHASE_1B.md
+    PHASE_1C_REVISION_B_SCHEMA_MIGRATION.md
+    PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql
+    PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql
+    IMPLEMENTATION_LOG_PHASE_1C.md
 
 Artifacts must:
 - Be versioned
@@ -368,14 +378,13 @@ Project is considered complete when:
 # 7. CURRENT POSITION
 
 Active Phase:
-Phase 1B — Schema Migration Blueprint
+Phase 1D — Deterministic Replay Validation
 
 Blockers:
-- Migration blueprint approval
-- Schema execution
-- Replay revalidation
+- None on schema integrity gates
+- Start Phase 1D implementation (replay CLI + parity verifier)
 
-No further engine construction until deterministic core passes validation.
+Deterministic core (Phase 1A/1B/1C) is structurally complete and validated for Phase 1D entry.
 
 ---
 

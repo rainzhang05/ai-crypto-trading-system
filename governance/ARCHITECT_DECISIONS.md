@@ -304,4 +304,37 @@ Status: Approved for Phase 1C Implementation
 
 END OF DECISION ARCH-0002
 
+---
+
+## DECISION ARCH-0003 — PHASE 1C REVISION C CLOSURE
+
+### Decision
+
+Phase 1C deterministic-contract implementation is declared complete after Revision C repair closure.
+
+Closure conditions satisfied:
+
+- `_v2` trigger/function drift removed from active runtime paths.
+- Walk-forward lineage and activation-gate bindings present and validated.
+- Replay-critical hash surface hardened to non-nullable columns.
+- No FK targets on hypertables.
+- No residual `_v2` relations.
+- Core deterministic integrity checks passing (cross-account isolation, ledger continuity, cluster cap, walk-forward contamination exclusion).
+- Migration lock returned to `locked = FALSE` only after zero-violation gate.
+
+### Artifacts
+
+- `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
+- `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
+- `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1C.md`
+- `governance/phases/phase_1_deterministic_contract/PHASE_1C_ARTIFACT_STATUS.md`
+
+### Status
+
+Architect: Approved  
+Auditor: Validation gate passed  
+Status: Phase 1C closed; Phase 1D authorized to start
+
+---
+
 END OF ARCHITECTURAL DECISIONS LOG
