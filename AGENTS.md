@@ -2,8 +2,6 @@
 ## AI Crypto Trading System – Codespace Orientation Document
 
 This document exists solely to explain the structure, purpose, and architectural intent of this repository to AI agents operating inside this codespace.
-
-It does **not** define agent roles.  
 It defines what this system is, what it enforces, and how the components fit together.
 
 ---
