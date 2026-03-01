@@ -141,4 +141,167 @@ Failure to log structural changes invalidates backtest credibility.
 
 ---
 
+## DECISION ID: ARCH-0002
+
+Date: 2026-02-28  
+Module Affected: Core Data Layer, Replay Contract, Risk Enforcement Layer, Execution Lineage, Model Lineage
+
+### Description
+
+Approval of Phase 1B — Deterministic Contract Migration.
+
+This decision formalizes the structural migration defined in:
+
+governance/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md
+
+The migration introduces:
+
+1. Account-complete run context binding:
+   - All replay-authoritative tables bind to
+     (run_id, account_id, run_mode, origin_hour_ts_utc).
+
+2. Dual-hour execution model:
+   - origin_hour_ts_utc = decision anchor.
+   - hour_ts_utc / event_ts_utc = actual economic event time.
+   - Structural decoupling of decision and execution hours.
+
+3. Ledger chain hardening:
+   - ledger_seq (deterministic ordering).
+   - balance_before continuity enforcement.
+   - prev_ledger_hash and ledger_hash cryptographic linkage.
+   - economic_event_hash uniqueness.
+   - Full deterministic ledger regeneration required.
+
+4. Hash propagation DAG:
+   - row_hash on all replay-authoritative tables.
+   - upstream_hash / parent_hash lineage propagation.
+   - run_seed_hash integration into all preimages.
+   - replay_root_hash materialization in replay_manifest.
+
+5. Walk-forward structural enforcement:
+   - model_training_window bound to backtest_fold_result.
+   - training_window_id + fold lineage required for BACKTEST.
+   - Contamination guard (train_end < prediction_hour < valid_end).
+   - Activation gate required for PAPER/LIVE predictions.
+
+6. Risk-state binding enforcement:
+   - trade_signal and order_request bound to exact risk_state_run_id.
+   - Risk halt/kill switch enforced via deferred trigger.
+   - Orders structurally blocked when risk state forbids entries.
+
+7. Correlation cluster structural enforcement:
+   - correlation_cluster registry.
+   - asset_cluster_membership (time-bounded).
+   - cluster_exposure_hourly_state keyed to risk state.
+   - Admission-time cap enforcement (≤ 8% of PV).
+
+8. Economic formula enforcement:
+   - fee_paid = fill_notional × fee_rate.
+   - slippage_cost enforced via formula.
+   - executed_trade net_pnl hard constraint.
+
+9. Append-only enforcement:
+   - UPDATE/DELETE blocked on replay-authoritative tables.
+   - Legacy tables archived at cutover.
+
+This migration requires:
+
+- Full freeze at cutpoint T0.
+- Full deterministic regeneration of decision, execution, risk, and accounting tables.
+- No in-place mutation of append-only history.
+- Replay parity validation before unlocking production writes.
+
+---
+
+### Reason
+
+The prior schema allowed:
+
+- Cross-account context ambiguity.
+- Hour-coupled execution constraints preventing multi-hour lifecycle accuracy.
+- Non-sequenced ledger entries.
+- Partial hash lineage.
+- Externalized walk-forward validation enforcement.
+- Policy-level (not structural) cluster cap enforcement.
+
+These conditions violate:
+
+- Deterministic replay guarantees.
+- Capital attribution isolation.
+- Audit-grade financial reconstruction.
+- Strict governance requirements defined in PROJECT_GOVERNANCE.md.
+- Walk-forward and contamination controls defined in MASTER_SPEC.md.
+
+Phase 1B eliminates these structural weaknesses and upgrades the system to a cryptographically verifiable deterministic contract.
+
+---
+
+### Risk Impact
+
+HIGH POSITIVE IMPACT.
+
+This migration:
+
+- Eliminates cross-account capital contamination.
+- Eliminates silent ledger drift.
+- Prevents cluster cap bypass.
+- Prevents risk halt bypass.
+- Blocks walk-forward leakage at insert time.
+- Enforces fee/slippage correctness at schema level.
+- Enables cryptographic replay attestation.
+
+No risk rule thresholds are modified:
+- 20% hard drawdown remains unchanged.
+- 8% cluster cap remains unchanged.
+- 2% base position size remains unchanged.
+- Kraken 0.4% fee remains unchanged.
+
+This is structural hardening, not financial logic alteration.
+
+---
+
+### Backtest Impact
+
+YES — FULL REGENERATION REQUIRED.
+
+The following tables must be regenerated:
+
+- run_context
+- model_training_window
+- backtest_fold_result
+- feature_snapshot
+- regime_output
+- model_prediction
+- trade_signal
+- order_request
+- order_fill
+- position_lot
+- executed_trade
+- cash_ledger
+- position_hourly_state
+- portfolio_hourly_state
+- risk_hourly_state
+- risk_event
+- cluster_exposure_hourly_state
+
+Historical metrics may change due to:
+
+- Strict fee/slippage formula enforcement.
+- Deterministic ledger re-sequencing.
+- Exact walk-forward window enforcement.
+
+Backtests prior to Phase 1B are no longer governance-valid.
+
+---
+
+### Approval
+
+Architect: Approved  
+Auditor: Pending (post-implementation verification required)  
+Status: Approved for Phase 1C Implementation
+
+---
+
+END OF DECISION ARCH-0002
+
 END OF ARCHITECTURAL DECISIONS LOG
