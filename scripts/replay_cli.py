@@ -22,6 +22,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from execution.replay_engine import execute_hour, replay_hour
+from execution.replay_harness import replay_manifest_parity
 
 
 _NAMED_PARAM_RE = re.compile(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)")
@@ -139,6 +140,14 @@ def _build_parser() -> argparse.ArgumentParser:
     replay_cmd.add_argument("--account-id", required=True, type=int)
     replay_cmd.add_argument("--hour-ts-utc", required=True, type=_parse_hour_ts)
 
+    manifest_cmd = subparsers.add_parser(
+        "replay-manifest",
+        help="Phase 2 replay harness parity check against replay_manifest",
+    )
+    manifest_cmd.add_argument("--run-id", required=True, type=UUID)
+    manifest_cmd.add_argument("--account-id", required=True, type=int)
+    manifest_cmd.add_argument("--hour-ts-utc", required=True, type=_parse_hour_ts)
+
     return parser
 
 
@@ -166,27 +175,56 @@ def main() -> int:
             print(json.dumps(payload, sort_keys=True))
             return 0
 
-        report = replay_hour(
+        if args.command == "replay-hour":
+            report = replay_hour(
+                db=db,
+                run_id=args.run_id,
+                account_id=args.account_id,
+                hour_ts_utc=args.hour_ts_utc,
+            )
+            payload = {
+                "mismatch_count": report.mismatch_count,
+                "mismatches": [
+                    {
+                        "table": m.table_name,
+                        "key": m.key,
+                        "field": m.field_name,
+                        "expected": m.expected,
+                        "actual": m.actual,
+                    }
+                    for m in report.mismatches
+                ],
+            }
+            print(json.dumps(payload, sort_keys=True))
+            return 0 if report.mismatch_count == 0 else 2
+
+        phase2_report = replay_manifest_parity(
             db=db,
             run_id=args.run_id,
             account_id=args.account_id,
-            hour_ts_utc=args.hour_ts_utc,
+            origin_hour_ts_utc=args.hour_ts_utc,
         )
         payload = {
-            "mismatch_count": report.mismatch_count,
-            "mismatches": [
+            "replay_parity": phase2_report.replay_parity,
+            "mismatch_count": phase2_report.mismatch_count,
+            "recomputed_root_hash": phase2_report.recomputed_root_hash,
+            "manifest_root_hash": phase2_report.manifest_root_hash,
+            "recomputed_authoritative_row_count": phase2_report.recomputed_authoritative_row_count,
+            "manifest_authoritative_row_count": phase2_report.manifest_authoritative_row_count,
+            "failures": [
                 {
-                    "table": m.table_name,
-                    "key": m.key,
-                    "field": m.field_name,
-                    "expected": m.expected,
-                    "actual": m.actual,
+                    "code": failure.failure_code,
+                    "severity": failure.severity,
+                    "scope": failure.scope,
+                    "detail": failure.detail,
+                    "expected": failure.expected,
+                    "actual": failure.actual,
                 }
-                for m in report.mismatches
+                for failure in phase2_report.failures
             ],
         }
         print(json.dumps(payload, sort_keys=True))
-        return 0 if report.mismatch_count == 0 else 2
+        return 0 if phase2_report.replay_parity else 2
     finally:
         conn.close()
 

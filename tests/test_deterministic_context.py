@@ -771,6 +771,13 @@ def test_context_membership_loader_empty_and_duplicate_paths() -> None:
             "membership_hash": "b" * 64,
             "effective_from_utc": payload["run_context"][0]["hour_ts_utc"] - timedelta(days=1),
         },
+        {
+            "membership_id": 300,
+            "asset_id": 999,
+            "cluster_id": 9,
+            "membership_hash": "c" * 64,
+            "effective_from_utc": payload["run_context"][0]["hour_ts_utc"] - timedelta(minutes=30),
+        },
     ]
     context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
         run_id=payload["run_context"][0]["run_id"],

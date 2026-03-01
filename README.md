@@ -31,7 +31,7 @@ It is a governed quantitative trading system.
 
 - Phases 0, 1A, 1B, 1C, and 1D are completed.
 - Deterministic runtime execution + replay validation are implemented.
-- Phase 2 (Replay Harness Architecture) is ready to start.
+- Phase 2 (Replay Harness Architecture) is now in progress (initial replay harness slice implemented).
 - Training, paper-trading adapter, and live exchange adapter remain future roadmap phases.
 
 ---

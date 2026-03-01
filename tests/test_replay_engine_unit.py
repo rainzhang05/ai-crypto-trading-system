@@ -301,6 +301,15 @@ def test_plan_runtime_artifacts_cost_gate_logs_risk_event() -> None:
     assert any(event.reason_code == "ENTER_COST_GATE_FAILED" for event in planned.risk_events)
 
 
+def test_plan_runtime_artifacts_activation_gate_logs_risk_event() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.rows["model_activation_gate"][0]["validation_window_end_utc"] = hour + timedelta(hours=1)
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    planned = _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+    assert any(event.reason_code == "ACTIVATION_WINDOW_NOT_REACHED" for event in planned.risk_events)
+
+
 def test_plan_runtime_artifacts_deduplicates_identical_risk_events() -> None:
     db = _FakeDB()
     db.rows["risk_hourly_state"][0]["halt_new_entries"] = True
