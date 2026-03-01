@@ -22,7 +22,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from execution.replay_engine import execute_hour, replay_hour
-from execution.replay_harness import replay_manifest_parity
+from execution.decision_engine import normalize_timestamp
+from execution.replay_harness import replay_manifest_parity, replay_manifest_window_parity
 
 
 _NAMED_PARAM_RE = re.compile(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)")
@@ -148,6 +149,16 @@ def _build_parser() -> argparse.ArgumentParser:
     manifest_cmd.add_argument("--account-id", required=True, type=int)
     manifest_cmd.add_argument("--hour-ts-utc", required=True, type=_parse_hour_ts)
 
+    window_cmd = subparsers.add_parser(
+        "replay-window",
+        help="Phase 2 replay harness parity check over account/mode hour window",
+    )
+    window_cmd.add_argument("--account-id", required=True, type=int)
+    window_cmd.add_argument("--run-mode", required=True, choices=("BACKTEST", "PAPER", "LIVE"))
+    window_cmd.add_argument("--start-hour-ts-utc", required=True, type=_parse_hour_ts)
+    window_cmd.add_argument("--end-hour-ts-utc", required=True, type=_parse_hour_ts)
+    window_cmd.add_argument("--max-targets", type=int, default=None)
+
     return parser
 
 
@@ -198,33 +209,65 @@ def main() -> int:
             print(json.dumps(payload, sort_keys=True))
             return 0 if report.mismatch_count == 0 else 2
 
-        phase2_report = replay_manifest_parity(
+        if args.command == "replay-manifest":
+            phase2_report = replay_manifest_parity(
+                db=db,
+                run_id=args.run_id,
+                account_id=args.account_id,
+                origin_hour_ts_utc=args.hour_ts_utc,
+            )
+            payload = {
+                "status": "REPLAY PARITY: TRUE" if phase2_report.replay_parity else "REPLAY PARITY: FALSE",
+                "replay_parity": phase2_report.replay_parity,
+                "mismatch_count": phase2_report.mismatch_count,
+                "recomputed_root_hash": phase2_report.recomputed_root_hash,
+                "manifest_root_hash": phase2_report.manifest_root_hash,
+                "recomputed_authoritative_row_count": phase2_report.recomputed_authoritative_row_count,
+                "manifest_authoritative_row_count": phase2_report.manifest_authoritative_row_count,
+                "failures": [
+                    {
+                        "code": failure.failure_code,
+                        "severity": failure.severity,
+                        "scope": failure.scope,
+                        "detail": failure.detail,
+                        "expected": failure.expected,
+                        "actual": failure.actual,
+                    }
+                    for failure in phase2_report.failures
+                ],
+            }
+            print(json.dumps(payload, sort_keys=True))
+            return 0 if phase2_report.replay_parity else 2
+
+        window_report = replay_manifest_window_parity(
             db=db,
-            run_id=args.run_id,
             account_id=args.account_id,
-            origin_hour_ts_utc=args.hour_ts_utc,
+            run_mode=args.run_mode,
+            start_hour_ts_utc=args.start_hour_ts_utc,
+            end_hour_ts_utc=args.end_hour_ts_utc,
+            max_targets=args.max_targets,
         )
         payload = {
-            "replay_parity": phase2_report.replay_parity,
-            "mismatch_count": phase2_report.mismatch_count,
-            "recomputed_root_hash": phase2_report.recomputed_root_hash,
-            "manifest_root_hash": phase2_report.manifest_root_hash,
-            "recomputed_authoritative_row_count": phase2_report.recomputed_authoritative_row_count,
-            "manifest_authoritative_row_count": phase2_report.manifest_authoritative_row_count,
-            "failures": [
+            "status": "REPLAY PARITY: TRUE" if window_report.replay_parity else "REPLAY PARITY: FALSE",
+            "replay_parity": window_report.replay_parity,
+            "total_targets": window_report.total_targets,
+            "passed_targets": window_report.passed_targets,
+            "failed_targets": window_report.failed_targets,
+            "targets": [
                 {
-                    "code": failure.failure_code,
-                    "severity": failure.severity,
-                    "scope": failure.scope,
-                    "detail": failure.detail,
-                    "expected": failure.expected,
-                    "actual": failure.actual,
+                    "run_id": str(item.target.run_id),
+                    "account_id": item.target.account_id,
+                    "run_mode": item.target.run_mode,
+                    "origin_hour_ts_utc": normalize_timestamp(item.target.origin_hour_ts_utc),
+                    "replay_parity": item.report.replay_parity,
+                    "mismatch_count": item.report.mismatch_count,
+                    "failure_codes": [failure.failure_code for failure in item.report.failures],
                 }
-                for failure in phase2_report.failures
+                for item in window_report.items
             ],
         }
         print(json.dumps(payload, sort_keys=True))
-        return 0 if phase2_report.replay_parity else 2
+        return 0 if window_report.replay_parity else 2
     finally:
         conn.close()
 

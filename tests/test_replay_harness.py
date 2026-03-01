@@ -14,9 +14,11 @@ from execution.replay_harness import (
     canonical_serialize,
     classify_replay_failure,
     compare_replay_with_manifest,
+    list_replay_targets,
     load_snapshot_boundary,
     recompute_hash_dag,
     replay_manifest_parity,
+    replay_manifest_window_parity,
 )
 
 
@@ -193,3 +195,264 @@ def test_classify_replay_failure_fallback_and_mapped_severity() -> None:
     fallback = classify_replay_failure("UNKNOWN_CODE", "unknown mismatch")
     assert fallback.severity == "MEDIUM"
     assert fallback.scope == "unknown"
+
+
+class _WindowReplayDB:
+    def __init__(self) -> None:
+        self.hour_1 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+        self.hour_2 = datetime(2026, 1, 1, 13, 0, tzinfo=timezone.utc)
+        self.run_id_1 = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+        self.run_id_2 = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+
+        self.run_context_rows: list[dict[str, Any]] = [
+            {
+                "run_id": str(self.run_id_1),
+                "account_id": 1,
+                "run_mode": "LIVE",
+                "origin_hour_ts_utc": self.hour_1,
+                "run_seed_hash": "a" * 64,
+                "context_hash": "b" * 64,
+                "replay_root_hash": "0" * 64,
+            },
+            {
+                "run_id": str(self.run_id_2),
+                "account_id": 1,
+                "run_mode": "LIVE",
+                "origin_hour_ts_utc": self.hour_2,
+                "run_seed_hash": "c" * 64,
+                "context_hash": "d" * 64,
+                "replay_root_hash": "0" * 64,
+            },
+        ]
+        self.manifest_rows: list[dict[str, Any]] = [
+            {
+                "run_id": str(self.run_id_1),
+                "account_id": 1,
+                "origin_hour_ts_utc": self.hour_1,
+                "run_seed_hash": "a" * 64,
+                "replay_root_hash": "0" * 64,
+                "authoritative_row_count": 0,
+            },
+            {
+                "run_id": str(self.run_id_2),
+                "account_id": 1,
+                "origin_hour_ts_utc": self.hour_2,
+                "run_seed_hash": "c" * 64,
+                "replay_root_hash": "0" * 64,
+                "authoritative_row_count": 0,
+            },
+        ]
+        self.prior_risk = [{"row_hash": "e" * 64}]
+        self.prior_portfolio = [{"row_hash": "f" * 64}]
+        self.prior_ledger = [{"ledger_hash": "1" * 64}]
+
+        self.rows_by_run: dict[str, dict[str, list[dict[str, Any]]]] = {
+            str(self.run_id_1): {
+                "model_prediction": [
+                    {
+                        "asset_id": 1,
+                        "horizon": "H1",
+                        "model_version_id": 9,
+                        "hour_ts_utc": self.hour_1,
+                        "row_hash": "2" * 64,
+                    }
+                ],
+                "regime_output": [
+                    {
+                        "asset_id": 1,
+                        "model_version_id": 9,
+                        "hour_ts_utc": self.hour_1,
+                        "row_hash": "3" * 64,
+                    }
+                ],
+                "risk_hourly_state": [{"hour_ts_utc": self.hour_1, "row_hash": "4" * 64}],
+                "portfolio_hourly_state": [{"hour_ts_utc": self.hour_1, "row_hash": "5" * 64}],
+                "cluster_exposure_hourly_state": [
+                    {"cluster_id": 7, "hour_ts_utc": self.hour_1, "row_hash": "6" * 64}
+                ],
+                "trade_signal": [{"signal_id": "sig-1", "row_hash": "7" * 64}],
+                "order_request": [{"order_id": "ord-1", "row_hash": "8" * 64}],
+                "order_fill": [],
+                "position_lot": [],
+                "executed_trade": [],
+                "cash_ledger": [{"ledger_seq": 1, "row_hash": "9" * 64}],
+                "risk_event": [{"risk_event_id": "evt-1", "row_hash": "a" * 64}],
+            },
+            str(self.run_id_2): {
+                "model_prediction": [
+                    {
+                        "asset_id": 2,
+                        "horizon": "H1",
+                        "model_version_id": 9,
+                        "hour_ts_utc": self.hour_2,
+                        "row_hash": "b" * 64,
+                    }
+                ],
+                "regime_output": [
+                    {
+                        "asset_id": 2,
+                        "model_version_id": 9,
+                        "hour_ts_utc": self.hour_2,
+                        "row_hash": "c" * 64,
+                    }
+                ],
+                "risk_hourly_state": [{"hour_ts_utc": self.hour_2, "row_hash": "d" * 64}],
+                "portfolio_hourly_state": [{"hour_ts_utc": self.hour_2, "row_hash": "e" * 64}],
+                "cluster_exposure_hourly_state": [
+                    {"cluster_id": 8, "hour_ts_utc": self.hour_2, "row_hash": "f" * 64}
+                ],
+                "trade_signal": [{"signal_id": "sig-2", "row_hash": "1" * 64}],
+                "order_request": [{"order_id": "ord-2", "row_hash": "2" * 64}],
+                "order_fill": [],
+                "position_lot": [],
+                "executed_trade": [],
+                "cash_ledger": [{"ledger_seq": 1, "row_hash": "3" * 64}],
+                "risk_event": [{"risk_event_id": "evt-2", "row_hash": "4" * 64}],
+            },
+        }
+
+    def fetch_one(self, sql: str, params: Mapping[str, Any]) -> Optional[Mapping[str, Any]]:
+        rows = self.fetch_all(sql, params)
+        return rows[0] if rows else None
+
+    def fetch_all(self, sql: str, params: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
+        q = " ".join(sql.lower().split())
+        if "from run_context" in q and "origin_hour_ts_utc >=" in q:
+            results: list[dict[str, Any]] = []
+            for row in self.run_context_rows:
+                if int(row["account_id"]) != int(params["account_id"]):
+                    continue
+                if str(row["run_mode"]) != str(params["run_mode"]):
+                    continue
+                if row["origin_hour_ts_utc"] < params["start_hour_ts_utc"]:
+                    continue
+                if row["origin_hour_ts_utc"] > params["end_hour_ts_utc"]:
+                    continue
+                results.append(dict(row))
+            return results
+        if "from run_context" in q:
+            return [
+                dict(row)
+                for row in self.run_context_rows
+                if str(row["run_id"]) == str(params["run_id"])
+                and int(row["account_id"]) == int(params["account_id"])
+                and row["origin_hour_ts_utc"] == params["origin_hour_ts_utc"]
+            ]
+        if "from replay_manifest" in q:
+            return [
+                {
+                    "run_seed_hash": row["run_seed_hash"],
+                    "replay_root_hash": row["replay_root_hash"],
+                    "authoritative_row_count": row["authoritative_row_count"],
+                }
+                for row in self.manifest_rows
+                if str(row["run_id"]) == str(params["run_id"])
+                and int(row["account_id"]) == int(params["account_id"])
+                and row["origin_hour_ts_utc"] == params["origin_hour_ts_utc"]
+            ]
+
+        if "from risk_hourly_state" in q and "hour_ts_utc < :origin_hour_ts_utc" in q:
+            return list(self.prior_risk)
+        if "from portfolio_hourly_state" in q and "hour_ts_utc < :origin_hour_ts_utc" in q:
+            return list(self.prior_portfolio)
+        if "from cash_ledger" in q and "event_ts_utc < :origin_hour_ts_utc" in q:
+            return list(self.prior_ledger)
+
+        run_rows = self.rows_by_run[str(params["run_id"])]
+        if "from model_prediction" in q:
+            return list(run_rows["model_prediction"])
+        if "from regime_output" in q:
+            return list(run_rows["regime_output"])
+        if "from risk_hourly_state" in q:
+            return list(run_rows["risk_hourly_state"])
+        if "from portfolio_hourly_state" in q:
+            return list(run_rows["portfolio_hourly_state"])
+        if "from cluster_exposure_hourly_state" in q:
+            return list(run_rows["cluster_exposure_hourly_state"])
+        if "from trade_signal" in q:
+            return list(run_rows["trade_signal"])
+        if "from order_request" in q:
+            return list(run_rows["order_request"])
+        if "from order_fill" in q:
+            return list(run_rows["order_fill"])
+        if "from position_lot" in q:
+            return list(run_rows["position_lot"])
+        if "from executed_trade" in q:
+            return list(run_rows["executed_trade"])
+        if "from cash_ledger" in q:
+            return list(run_rows["cash_ledger"])
+        if "from risk_event" in q:
+            return list(run_rows["risk_event"])
+        raise RuntimeError(f"Unhandled query: {sql} | params={params}")
+
+
+def _align_window_db_roots(db: _WindowReplayDB) -> None:
+    for run_context in db.run_context_rows:
+        boundary = load_snapshot_boundary(
+            db=db,
+            run_id=UUID(str(run_context["run_id"])),
+            account_id=int(run_context["account_id"]),
+            origin_hour_ts_utc=run_context["origin_hour_ts_utc"],
+        )
+        recomputed = recompute_hash_dag(db=db, boundary=boundary)
+        run_context["replay_root_hash"] = recomputed.root_hash
+        for row in db.manifest_rows:
+            if (
+                str(row["run_id"]) == str(run_context["run_id"])
+                and row["origin_hour_ts_utc"] == run_context["origin_hour_ts_utc"]
+            ):
+                row["replay_root_hash"] = recomputed.root_hash
+                row["authoritative_row_count"] = recomputed.authoritative_row_count
+
+
+def test_list_replay_targets_success_and_max_targets() -> None:
+    db = _WindowReplayDB()
+    targets = list_replay_targets(db, 1, "LIVE", db.hour_1, db.hour_2)
+    assert len(targets) == 2
+    assert targets[0].run_id == db.run_id_1
+    clipped = list_replay_targets(db, 1, "LIVE", db.hour_1, db.hour_2, max_targets=1)
+    assert len(clipped) == 1
+    assert clipped[0].run_id == db.run_id_1
+
+
+def test_list_replay_targets_invalid_inputs_abort() -> None:
+    db = _WindowReplayDB()
+    with pytest.raises(DeterministicAbortError, match="end_hour_ts_utc must be >= start_hour_ts_utc"):
+        list_replay_targets(db, 1, "LIVE", db.hour_2, db.hour_1)
+    with pytest.raises(DeterministicAbortError, match="max_targets must be > 0"):
+        list_replay_targets(db, 1, "LIVE", db.hour_1, db.hour_2, max_targets=0)
+
+
+def test_list_replay_targets_no_rows_abort() -> None:
+    db = _WindowReplayDB()
+    with pytest.raises(DeterministicAbortError, match="No run_context rows found for replay target window"):
+        list_replay_targets(
+            db,
+            1,
+            "LIVE",
+            datetime(2026, 1, 2, 0, 0, tzinfo=timezone.utc),
+            datetime(2026, 1, 2, 1, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_replay_manifest_window_parity_reports_mixed_results() -> None:
+    db = _WindowReplayDB()
+    _align_window_db_roots(db)
+    # Introduce a deterministic manifest mismatch on the second target.
+    db.manifest_rows[1]["replay_root_hash"] = "9" * 64
+
+    report = replay_manifest_window_parity(
+        db=db,
+        account_id=1,
+        run_mode="LIVE",
+        start_hour_ts_utc=db.hour_1,
+        end_hour_ts_utc=db.hour_2,
+    )
+    assert report.replay_parity is False
+    assert report.total_targets == 2
+    assert report.passed_targets == 1
+    assert report.failed_targets == 1
+    assert report.items[0].target.run_id == db.run_id_1
+    assert report.items[0].report.replay_parity is True
+    assert report.items[1].target.run_id == db.run_id_2
+    assert report.items[1].report.replay_parity is False

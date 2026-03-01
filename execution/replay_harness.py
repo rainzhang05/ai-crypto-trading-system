@@ -90,6 +90,29 @@ class ReplayComparisonReport:
 
 
 @dataclass(frozen=True)
+class ReplayTarget:
+    run_id: UUID
+    account_id: int
+    run_mode: str
+    origin_hour_ts_utc: datetime
+
+
+@dataclass(frozen=True)
+class ReplayWindowItem:
+    target: ReplayTarget
+    report: ReplayComparisonReport
+
+
+@dataclass(frozen=True)
+class ReplayWindowReport:
+    replay_parity: bool
+    total_targets: int
+    passed_targets: int
+    failed_targets: int
+    items: tuple[ReplayWindowItem, ...]
+
+
+@dataclass(frozen=True)
 class _ReplayTableSpec:
     table_name: str
     key_columns: tuple[str, ...]
@@ -587,6 +610,97 @@ def replay_manifest_parity(
     )
     recomputed = recompute_hash_dag(db=db, boundary=boundary)
     return compare_replay_with_manifest(boundary=boundary, recomputed=recomputed)
+
+
+def list_replay_targets(
+    db: ReplayHarnessDatabase,
+    account_id: int,
+    run_mode: str,
+    start_hour_ts_utc: datetime,
+    end_hour_ts_utc: datetime,
+    max_targets: Optional[int] = None,
+) -> tuple[ReplayTarget, ...]:
+    """List deterministic replay targets for an account/mode/hour window."""
+    if end_hour_ts_utc < start_hour_ts_utc:
+        raise DeterministicAbortError("end_hour_ts_utc must be >= start_hour_ts_utc.")
+
+    rows = db.fetch_all(
+        """
+        SELECT run_id, account_id, run_mode, origin_hour_ts_utc
+        FROM run_context
+        WHERE account_id = :account_id
+          AND run_mode = :run_mode
+          AND origin_hour_ts_utc >= :start_hour_ts_utc
+          AND origin_hour_ts_utc <= :end_hour_ts_utc
+        ORDER BY origin_hour_ts_utc ASC, run_id ASC
+        """,
+        {
+            "account_id": account_id,
+            "run_mode": run_mode,
+            "start_hour_ts_utc": start_hour_ts_utc,
+            "end_hour_ts_utc": end_hour_ts_utc,
+        },
+    )
+
+    if not rows:
+        raise DeterministicAbortError(
+            "No run_context rows found for replay target window."
+        )
+
+    targets = tuple(
+        ReplayTarget(
+            run_id=UUID(str(row["run_id"])),
+            account_id=int(row["account_id"]),
+            run_mode=str(row["run_mode"]),
+            origin_hour_ts_utc=row["origin_hour_ts_utc"],
+        )
+        for row in rows
+    )
+    if max_targets is None:
+        return targets
+    if max_targets <= 0:
+        raise DeterministicAbortError("max_targets must be > 0 when provided.")
+    return targets[:max_targets]
+
+
+def replay_manifest_window_parity(
+    db: ReplayHarnessDatabase,
+    account_id: int,
+    run_mode: str,
+    start_hour_ts_utc: datetime,
+    end_hour_ts_utc: datetime,
+    max_targets: Optional[int] = None,
+) -> ReplayWindowReport:
+    """Run Phase 2 parity checks over a deterministic replay target window."""
+    targets = list_replay_targets(
+        db=db,
+        account_id=account_id,
+        run_mode=run_mode,
+        start_hour_ts_utc=start_hour_ts_utc,
+        end_hour_ts_utc=end_hour_ts_utc,
+        max_targets=max_targets,
+    )
+    items = tuple(
+        ReplayWindowItem(
+            target=target,
+            report=replay_manifest_parity(
+                db=db,
+                run_id=target.run_id,
+                account_id=target.account_id,
+                origin_hour_ts_utc=target.origin_hour_ts_utc,
+            ),
+        )
+        for target in targets
+    )
+    failed_targets = sum(1 for item in items if not item.report.replay_parity)
+    total_targets = len(items)
+    return ReplayWindowReport(
+        replay_parity=(failed_targets == 0),
+        total_targets=total_targets,
+        passed_targets=total_targets - failed_targets,
+        failed_targets=failed_targets,
+        items=items,
+    )
 
 
 def _compute_table_digest(

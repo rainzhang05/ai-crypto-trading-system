@@ -7,7 +7,13 @@ from execution.deterministic_context import (
     DeterministicContextBuilder,
     ExecutionContext,
 )
-from execution.replay_harness import ReplayComparisonReport, replay_manifest_parity
+from execution.replay_harness import (
+    ReplayComparisonReport,
+    ReplayWindowReport,
+    list_replay_targets,
+    replay_manifest_parity,
+    replay_manifest_window_parity,
+)
 from execution.replay_engine import ReplayReport, execute_hour, replay_hour
 from execution.runtime_writer import AppendOnlyRuntimeWriter, RuntimeWriteResult
 
@@ -20,11 +26,14 @@ __all__ = [
     "DeterministicContextBuilder",
     "ExecutionContext",
     "ReplayComparisonReport",
+    "ReplayWindowReport",
     "ReplayReport",
     "RuntimeWriteResult",
     "deterministic_decision",
     "enforce_activation_gate",
     "execute_hour",
+    "list_replay_targets",
     "replay_manifest_parity",
+    "replay_manifest_window_parity",
     "replay_hour",
 ]
