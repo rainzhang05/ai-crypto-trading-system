@@ -217,6 +217,7 @@ Includes:
 - governance/prompts/IMPLEMENTATION_PROMPT.md
 - governance/prompts/AUDITOR_PROMPT.md
 - governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql
+- governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql
 
 No structural change is valid unless logged and reviewed.
 

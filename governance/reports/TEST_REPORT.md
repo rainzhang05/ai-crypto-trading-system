@@ -1,4 +1,8 @@
-# Global Codespace Test Report (Phase 0 -> 1A -> 1B -> 1C -> 1D)
+# Global Codespace Test Report (Phase 0 -> 1A -> 1B -> 1C -> 1D) [Historical]
+
+Current Phase 2 status and closure evidence are documented in:
+- `governance/reports/PHASE_2_TEST_REPORT.md`
+- `governance/phases/phase_2_replay_harness/PHASE_2_COMPLETION_REPORT.md`
 
 ## Final Decision
 

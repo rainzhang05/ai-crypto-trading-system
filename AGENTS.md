@@ -73,7 +73,7 @@ This contains SQLAlchemy model definitions for the core database domain.
 
 Important:
 - The authoritative schema contract is `schema_bootstrap.sql` and `governance/specs/SCHEMA_DDL_MASTER.md`.
-- Phase 1D runtime logic is SQL-first (deterministic query surfaces in `execution/`).
+- Phase 1D/2 runtime + replay logic is SQL-first (deterministic query surfaces in `execution/`).
 - ORM classes are helpful references for application code, but schema governance must always follow the canonical SQL contract.
 
 ## 4.1 Core Files
@@ -129,8 +129,11 @@ This is the deterministic runtime decision engine.
 - `replay_engine.py`  
   Reconstructs execution flow from database history.
 
+- `replay_harness.py`  
+  Phase 2 replay harness (boundary loading, canonical serialization, hash DAG recomputation, parity comparison).
+
 - `scripts/replay_cli.py`  
-  CLI entrypoint for deterministic `execute-hour` and `replay-hour` operations.
+  CLI entrypoint for deterministic replay operations (`execute-hour`, `replay-hour`, `replay-manifest`, `replay-window`, `replay-tool`).
 
 - `risk_runtime.py`  
   Enforces runtime drawdown and capital controls.
@@ -183,6 +186,7 @@ Contains phase-by-phase implementation logs:
 
 - Phase 0 – Data layer foundation
 - Phase 1A–1D – Deterministic contract hardening
+- Phase 2 – Replay harness architecture
 
 These logs document architectural evolution and repair cycles.
 
@@ -302,13 +306,14 @@ Completed:
 
 - Phase 0 – Data foundation
 - Phase 1A–1D – Deterministic contract enforcement
+- Phase 2 – Replay harness architecture (deterministic replay tool implemented and validated)
 - Walk-forward gating
 - Runtime risk enforcement
 - Replay validation
 - Test coverage
 
 The system currently operates as a deterministic trading core.
-Phase 2 is ready to start per `governance/specs/PROJECT_ROADMAP.md`.
+Phase 2 is closed; Phase 3 is ready to begin per `governance/specs/PROJECT_ROADMAP.md`.
 
 Future phases (per roadmap) will extend:
 

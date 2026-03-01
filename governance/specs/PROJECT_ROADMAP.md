@@ -136,11 +136,11 @@ Status:
 - ✅ Runtime validation gates executed with zero violations.
 - ✅ Deterministic replay parity checks passed.
 
-Phase 2 is unblocked.
+Phase 2 entry was unblocked after Phase 1D closure.
 
 ---
 
-## PHASE 2 — REPLAY HARNESS ARCHITECTURE
+## PHASE 2 — REPLAY HARNESS ARCHITECTURE ✅ COMPLETED
 
 Build:
 - Snapshot boundary loader
@@ -154,6 +154,16 @@ Deliverable:
 
 System must produce:
 REPLAY PARITY: TRUE
+
+Status:
+- ✅ Snapshot boundary loader implemented.
+- ✅ Canonical serialization engine implemented.
+- ✅ Deterministic hash DAG recomputation implemented.
+- ✅ Failure classification engine implemented.
+- ✅ Replay comparison engine implemented.
+- ✅ Deterministic replay tool implemented (`replay-tool`) with parity status output.
+- ✅ Governance validation gate added (`PHASE_2_REPLAY_HARNESS_VALIDATION.sql`).
+- ✅ Clean-room replay-tool smoke check added to test pipeline.
 
 ---
 
@@ -384,13 +394,13 @@ Project is considered complete when:
 # 7. CURRENT POSITION
 
 Active Phase:
-Phase 2 — Replay Harness Architecture (Ready to Start)
+Phase 3 — Risk Engine Runtime Implementation (Ready to Start)
 
 Blockers:
-- None on deterministic core or runtime validation gates.
-- Phase 1D closure complete; Phase 2 execution can begin.
+- None on deterministic core, runtime validation gates, or replay harness closure.
+- Phase 2 closure complete; Phase 3 execution can begin.
 
-Deterministic core and runtime (Phase 1A/1B/1C/1D) are structurally complete and validated for Phase 2 entry.
+Deterministic core, runtime, and replay harness (Phase 1A/1B/1C/1D/2) are structurally complete and validated for Phase 3 entry.
 
 ---
 
