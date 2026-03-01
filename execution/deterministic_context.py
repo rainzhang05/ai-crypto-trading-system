@@ -121,6 +121,9 @@ class RiskState:
     hour_ts_utc: datetime
     source_run_id: UUID
     portfolio_value: Decimal
+    drawdown_pct: Decimal
+    drawdown_tier: str
+    max_concurrent_positions: int
     max_total_exposure_pct: Decimal
     max_cluster_exposure_pct: Decimal
     halt_new_entries: bool
@@ -562,6 +565,7 @@ class DeterministicContextBuilder:
         row = self._db.fetch_one(
             """
             SELECT run_mode, account_id, hour_ts_utc, source_run_id, portfolio_value,
+                   drawdown_pct, drawdown_tier, max_concurrent_positions,
                    max_total_exposure_pct, max_cluster_exposure_pct, halt_new_entries,
                    kill_switch_active, state_hash, row_hash
             FROM risk_hourly_state
@@ -585,6 +589,17 @@ class DeterministicContextBuilder:
             hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
             source_run_id=_as_uuid(row["source_run_id"]),
             portfolio_value=_as_decimal(row["portfolio_value"]),
+            drawdown_pct=(
+                _as_decimal(row["drawdown_pct"])
+                if row.get("drawdown_pct") is not None
+                else Decimal("0")
+            ),
+            drawdown_tier=str(row["drawdown_tier"]) if row.get("drawdown_tier") is not None else "NORMAL",
+            max_concurrent_positions=(
+                int(row["max_concurrent_positions"])
+                if row.get("max_concurrent_positions") is not None
+                else 10
+            ),
             max_total_exposure_pct=_as_decimal(row["max_total_exposure_pct"]),
             max_cluster_exposure_pct=_as_decimal(row["max_cluster_exposure_pct"]),
             halt_new_entries=bool(row["halt_new_entries"]),

@@ -118,6 +118,9 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "hour_ts_utc": hour,
                 "source_run_id": run_id,
                 "portfolio_value": Decimal("10000"),
+                "drawdown_pct": Decimal("0.0100000000"),
+                "drawdown_tier": "NORMAL",
+                "max_concurrent_positions": 10,
                 "max_total_exposure_pct": Decimal("0.2"),
                 "max_cluster_exposure_pct": Decimal("0.08"),
                 "halt_new_entries": False,
@@ -830,3 +833,20 @@ def test_context_scalar_coercion_helpers_from_strings() -> None:
     assert isinstance(parsed_dt, datetime)
     parsed_uuid = deterministic_context_module._as_uuid("11111111-1111-4111-8111-111111111111")
     assert isinstance(parsed_uuid, UUID)
+
+
+def test_context_risk_state_drawdown_defaults_when_fields_absent() -> None:
+    payload = _live_payload()
+    del payload["risk_hourly_state"][0]["drawdown_pct"]
+    del payload["risk_hourly_state"][0]["drawdown_tier"]
+    del payload["risk_hourly_state"][0]["max_concurrent_positions"]
+
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+    )
+    assert context.risk_state.drawdown_pct == Decimal("0")
+    assert context.risk_state.drawdown_tier == "NORMAL"
+    assert context.risk_state.max_concurrent_positions == 10

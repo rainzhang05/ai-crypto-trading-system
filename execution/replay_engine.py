@@ -18,10 +18,13 @@ from execution.deterministic_context import (
 )
 from execution.risk_runtime import (
     RiskViolation,
+    RuntimeRiskProfile,
     enforce_capital_preservation,
     enforce_cluster_cap,
     enforce_cross_account_isolation,
+    enforce_position_count_cap,
     enforce_runtime_risk_gate,
+    enforce_severe_loss_entry_gate,
 )
 from execution.runtime_writer import (
     AppendOnlyRuntimeWriter,
@@ -66,6 +69,7 @@ def execute_hour(
     account_id: int,
     run_mode: str,
     hour_ts_utc: datetime,
+    risk_profile: Optional[RuntimeRiskProfile] = None,
 ) -> RuntimeWriteResult:
     """Execute deterministic runtime writes for one run/account/hour key."""
     builder = DeterministicContextBuilder(db)
@@ -87,7 +91,11 @@ def execute_hour(
             account_id=context.run_context.account_id,
             run_mode=context.run_context.run_mode,
         )
-        planned = _plan_runtime_artifacts(context, writer)
+        planned = _plan_runtime_artifacts(
+            context=context,
+            writer=writer,
+            risk_profile=risk_profile,
+        )
 
         for signal in planned.trade_signals:
             writer.insert_trade_signal(signal)
@@ -116,6 +124,7 @@ def replay_hour(
     run_id: UUID,
     account_id: int,
     hour_ts_utc: datetime,
+    risk_profile: Optional[RuntimeRiskProfile] = None,
 ) -> ReplayReport:
     """Reconstruct, recompute, and compare deterministic runtime artifacts."""
     run_ctx = db.fetch_one(
@@ -135,7 +144,11 @@ def replay_hour(
     builder = DeterministicContextBuilder(db)
     context = builder.build_context(run_id, account_id, run_mode, hour_ts_utc)
     writer = AppendOnlyRuntimeWriter(db)
-    expected = _plan_runtime_artifacts(context, writer)
+    expected = _plan_runtime_artifacts(
+        context=context,
+        writer=writer,
+        risk_profile=risk_profile,
+    )
 
     stored_signals = db.fetch_all(
         """
@@ -182,6 +195,7 @@ def replay_hour(
 def _plan_runtime_artifacts(
     context: ExecutionContext,
     writer: AppendOnlyRuntimeWriter,
+    risk_profile: Optional[RuntimeRiskProfile] = None,
 ) -> RuntimeWriteResult:
     trade_signals: list[TradeSignalRow] = []
     order_requests: list[OrderRequestRow] = []
@@ -237,6 +251,20 @@ def _plan_runtime_artifacts(
                 )
             )
         violations.extend(enforce_runtime_risk_gate(preliminary_signal.action, context))
+        violations.extend(
+            enforce_position_count_cap(
+                action=preliminary_signal.action,
+                context=context,
+                risk_profile=risk_profile,
+            )
+        )
+        violations.extend(
+            enforce_severe_loss_entry_gate(
+                action=preliminary_signal.action,
+                context=context,
+                risk_profile=risk_profile,
+            )
+        )
         if preliminary_signal.action == "ENTER" and preliminary_signal.net_edge <= Decimal("0"):
             violations.append(
                 RiskViolation(
@@ -251,6 +279,7 @@ def _plan_runtime_artifacts(
                 preliminary_signal.action,
                 preliminary_signal.target_position_notional,
                 context,
+                risk_profile,
             )
         )
         violations.extend(
@@ -259,6 +288,7 @@ def _plan_runtime_artifacts(
                 prediction.asset_id,
                 preliminary_signal.target_position_notional,
                 context,
+                risk_profile,
             )
         )
 

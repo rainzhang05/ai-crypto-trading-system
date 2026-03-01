@@ -20,6 +20,7 @@ from execution.replay_engine import (
     execute_hour,
     replay_hour,
 )
+from execution.risk_runtime import RuntimeRiskProfile
 from execution.runtime_writer import AppendOnlyRuntimeWriter
 
 
@@ -412,3 +413,27 @@ def test_compare_risk_events_presence_and_hash_mismatch_branches() -> None:
         [{"risk_event_id": str(risk_event.risk_event_id), "row_hash": "f" * 64}],
     )
     assert any(m.field_name == "row_hash" for m in mismatches)
+
+
+def test_plan_runtime_artifacts_position_cap_logs_risk_event() -> None:
+    db = _FakeDB()
+    db.rows["portfolio_hourly_state"][0]["open_position_count"] = 10
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    planned = _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+    assert any(event.reason_code == "MAX_CONCURRENT_POSITIONS_EXCEEDED" for event in planned.risk_events)
+
+
+def test_plan_runtime_artifacts_severe_loss_entry_gate_logs_risk_event() -> None:
+    db = _FakeDB()
+    db.rows["risk_hourly_state"][0]["drawdown_pct"] = Decimal("0.1600000000")
+    db.rows["risk_hourly_state"][0]["drawdown_tier"] = "DD15"
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    profile = RuntimeRiskProfile(severe_loss_drawdown_trigger=Decimal("0.1500000000"))
+    planned = _plan_runtime_artifacts(
+        context=context,
+        writer=AppendOnlyRuntimeWriter(db),
+        risk_profile=profile,
+    )
+    assert any(event.reason_code == "SEVERE_LOSS_RECOVERY_ENTRY_BLOCKED" for event in planned.risk_events)

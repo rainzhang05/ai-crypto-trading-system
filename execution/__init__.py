@@ -17,6 +17,11 @@ from execution.replay_harness import (
     replay_manifest_window_parity,
 )
 from execution.replay_engine import ReplayReport, execute_hour, replay_hour
+from execution.risk_runtime import (
+    RiskStateEvaluation,
+    RuntimeRiskProfile,
+    evaluate_risk_state_machine,
+)
 from execution.runtime_writer import AppendOnlyRuntimeWriter, RuntimeWriteResult
 
 __all__ = [
@@ -30,11 +35,14 @@ __all__ = [
     "ReplayComparisonReport",
     "ReplayWindowReport",
     "ReplayReport",
+    "RiskStateEvaluation",
+    "RuntimeRiskProfile",
     "RuntimeWriteResult",
     "discover_replay_targets",
     "deterministic_decision",
     "enforce_activation_gate",
     "execute_hour",
+    "evaluate_risk_state_machine",
     "list_replay_targets",
     "replay_manifest_parity",
     "replay_manifest_tool_parity",

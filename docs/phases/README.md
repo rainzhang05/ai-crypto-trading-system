@@ -1,6 +1,6 @@
 # Phases Directory Policy
 
-This directory contains historical phase artifacts (migration blueprints, implementation logs, completion reports) for Phase 0-2.
+This directory contains phase artifacts (migration blueprints, implementation logs, completion reports) for completed phases and active phase-start slices.
 
 Important interpretation rule:
 
@@ -14,3 +14,7 @@ Current authoritative implementation policy is defined in:
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/MASTER_SPEC.md`
 - `docs/specs/PROJECT_ROADMAP.md`
+
+Current directory state includes:
+- Historical closure artifacts for Phase 0-2.
+- Active kickoff artifacts for Phase 3 runtime implementation.
