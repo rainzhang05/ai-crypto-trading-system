@@ -1,5 +1,5 @@
 # AI CRYPTO TRADING SYSTEM — MASTER PROJECT ROADMAP
-Version: 1.0  
+Version: 1.1  
 Status: Authoritative Execution Roadmap  
 Scope: From Deterministic Core Hardening → Production Deployment  
 

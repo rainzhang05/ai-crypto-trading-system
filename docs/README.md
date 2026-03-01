@@ -22,6 +22,7 @@ This directory is organized by artifact type to keep deterministic governance as
 - `phases/`
   - Phase-specific implementation logs and historical migration artifacts.
   - Historical snapshots may contain superseded assumptions; current trading-horizon policy is always defined in `docs/specs/*`.
+  - See `docs/phases/README.md` for the interpretation policy used by implementers.
 - `test_logs/`
   - Generated logs from `make test` / `scripts/test_all.sh` clean-room runs.
 

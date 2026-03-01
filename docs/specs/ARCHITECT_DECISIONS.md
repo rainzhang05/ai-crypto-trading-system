@@ -258,11 +258,11 @@ This migration:
 - Enforces fee/slippage correctness at schema level.
 - Enables cryptographic replay attestation.
 
-No risk rule thresholds are modified:
-- 20% hard drawdown remains unchanged.
-- 8% cluster cap remains unchanged.
-- 2% base position size remains unchanged.
-- Kraken 0.4% fee remains unchanged.
+No risk rule thresholds are modified in the ARCH-0002 decision scope (historical baseline at that time):
+- 20% drawdown-based entry halt policy remained unchanged.
+- 8% cluster cap remained unchanged.
+- 2% base position size remained unchanged.
+- Kraken 0.4% fee remained unchanged.
 
 This is structural hardening, not financial logic alteration.
 

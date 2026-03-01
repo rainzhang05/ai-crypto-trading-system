@@ -18,7 +18,7 @@ Canonical executable schema snapshot:
 - No nullable critical financial execution/accounting fields.
 - Decision-path tables are append-only.
 - `run_mode` isolation is enforced across trading-layer tables.
-- Hard drawdown enforcement is encoded in `risk_hourly_state` constraints.
+- Baseline drawdown-tier enforcement for the Phase 0-2 schema snapshot is encoded in `risk_hourly_state` constraints.
 - No-leverage enforcement is encoded in `order_request`.
 - Deterministic join keys are enforced across `run_id`, `account_id`, and `hour_ts_utc`.
 

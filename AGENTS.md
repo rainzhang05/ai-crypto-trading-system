@@ -266,6 +266,10 @@ The schema enforces:
 - Replay-safe hashes
 - Risk-tier mapping constraints
 
+Phase-alignment note:
+- The Phase 0-2 canonical schema includes baseline fixed numeric safety defaults used by completed deterministic scaffolding.
+- New implementation work for live strategy phases must follow `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md` and `docs/specs/PROJECT_ROADMAP.md` for profile-configurable controls and continuous live decisioning, implemented through governed schema/runtime evolution.
+
 Database constraints are considered first-class safety controls.
 
 Runtime must not weaken them.
