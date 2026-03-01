@@ -9,6 +9,7 @@ from execution.decision_engine import (
     NUMERIC_10,
     deterministic_decision,
     normalize_decimal,
+    normalize_token,
     stable_hash,
     stable_uuid,
 )
@@ -32,6 +33,12 @@ def test_stable_uuid_is_deterministic() -> None:
 def test_normalize_decimal_quantizes_with_half_even() -> None:
     value = Decimal("0.12345678906")
     assert normalize_decimal(value, NUMERIC_10) == Decimal("0.1234567891")
+
+
+def test_normalize_token_handles_none_and_bool() -> None:
+    assert normalize_token(None) == ""
+    assert normalize_token(True) == "1"
+    assert normalize_token(False) == "0"
 
 
 def test_deterministic_decision_is_pure_function() -> None:

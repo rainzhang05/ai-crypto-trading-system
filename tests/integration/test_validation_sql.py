@@ -38,7 +38,7 @@ def _run_validation_sql(conn: Any, sql_path: Path) -> list[dict[str, Any]]:
 
 
 def test_phase_1c_validation_sql_returns_zero(pg_conn: Any) -> None:
-    sql_path = Path("governance/PHASE_1C_VALIDATION.sql")
+    sql_path = Path("governance/validations/PHASE_1C_VALIDATION.sql")
     results = _run_validation_sql(pg_conn, sql_path)
     assert results, "No check rows were returned by Phase 1C validation SQL."
     for row in results:
@@ -46,7 +46,7 @@ def test_phase_1c_validation_sql_returns_zero(pg_conn: Any) -> None:
 
 
 def test_phase_1d_validation_sql_returns_zero(pg_conn: Any) -> None:
-    sql_path = Path("governance/PHASE_1D_RUNTIME_VALIDATION.sql")
+    sql_path = Path("governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql")
     results = _run_validation_sql(pg_conn, sql_path)
     assert results, "No check rows were returned by Phase 1D validation SQL."
     for row in results:

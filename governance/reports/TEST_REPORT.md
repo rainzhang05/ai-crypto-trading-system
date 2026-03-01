@@ -13,13 +13,13 @@ All required gates for this review run passed in a clean-room ephemeral DB run, 
 - Canonical schema bootstrap:
   - `schema_bootstrap.sql`
 - Authoritative schema/governance specs:
-  - `governance/SCHEMA_DDL_MASTER.md`
-  - `governance/MASTER_SPEC.md`
-  - `governance/PROJECT_ROADMAP.md`
-  - `governance/PROJECT_GOVERNANCE.md`
-  - `governance/ARCHITECT_DECISIONS.md`
-  - `governance/RISK_RULES.md`
-  - `governance/MODEL_ASSUMPTIONS.md`
+  - `governance/specs/SCHEMA_DDL_MASTER.md`
+  - `governance/specs/MASTER_SPEC.md`
+  - `governance/specs/PROJECT_ROADMAP.md`
+  - `governance/specs/PROJECT_GOVERNANCE.md`
+  - `governance/specs/ARCHITECT_DECISIONS.md`
+  - `governance/specs/RISK_RULES.md`
+  - `governance/specs/MODEL_ASSUMPTIONS.md`
 - Phase 1B/1C migration artifacts:
   - `governance/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md`
   - `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_A_SCHEMA_MIGRATION.md`
@@ -47,14 +47,14 @@ All required gates for this review run passed in a clean-room ephemeral DB run, 
 - `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1B.md`
 - `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1C.md`
 - `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1D.md`
-- `governance/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
-- `governance/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
+- `governance/repairs/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
+- `governance/repairs/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
 
 ## 2) Governance Artifact Completeness Check
 
-- `governance/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`: **present**.
+- `governance/repairs/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`: **present**.
 - Matched against phase artifact copy (`cmp` exit 0): **match**.
-- `governance/PHASE_1D_RUNTIME_VALIDATION.sql`: **present**.
+- `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`: **present**.
 - Required phase implementation logs (0/1A/1B/1C/1D): **present**.
 
 ## 3) Clean-Room Rebuild Proof
@@ -146,18 +146,18 @@ pytest
 
 ### Result
 
-- `49 passed`
-- Coverage threshold gate (`>=80%`) passed
-- Total coverage: `88.15%`
+- `85 passed`
+- Coverage safety target for `execution/*` passed at `100.00%`
+- Total coverage: `100.00%`
 
 Per-module coverage (`execution/*`):
 
 - `execution/activation_gate.py`: 100%
-- `execution/decision_engine.py`: 96%
-- `execution/deterministic_context.py`: 82%
-- `execution/replay_engine.py`: 86%
+- `execution/decision_engine.py`: 100%
+- `execution/deterministic_context.py`: 100%
+- `execution/replay_engine.py`: 100%
 - `execution/risk_runtime.py`: 100%
-- `execution/runtime_writer.py`: 96%
+- `execution/runtime_writer.py`: 100%
 
 Evidence: `governance/test_logs/pytest.log`
 
@@ -179,8 +179,21 @@ The following blocking failures were found during this review cycle and fixed de
    - Fix: replaced with valid hex hash.
 7. Ephemeral DB startup flakiness.
    - Fix: hardened startup readiness checks (consecutive healthy checks + post-ready stability check) in `scripts/test_all.sh`.
+8. Remaining uncovered execution branches during safety hardening.
+   - Fix: added exhaustive branch tests across context constructor, replay diffing, and append-only writer guards to reach 100% execution-module coverage.
 
-## 8) Determinism/Replay Evidence
+## 8) Governance Layout Cleanup
+
+- Governance root was reorganized into typed subfolders for maintainability:
+  - `governance/specs/`
+  - `governance/validations/`
+  - `governance/repairs/`
+  - `governance/reports/`
+  - `governance/prompts/`
+- Updated all script/test/document references to new paths.
+- Added `governance/README.md` as a directory map and usage guide.
+
+## 9) Determinism/Replay Evidence
 
 - Runtime DB integration test executes one-hour deterministic runtime and verifies:
   - append-only behavior on runtime tables,
@@ -188,7 +201,7 @@ The following blocking failures were found during this review cycle and fixed de
   - replay parity with `replay_hour(...)` mismatch count = 0.
 - Governance replay parity gates all returned zero.
 
-## 9) Schema/Governance Safety Confirmation
+## 10) Schema/Governance Safety Confirmation
 
 - No schema redesign introduced.
 - No constraints relaxed.

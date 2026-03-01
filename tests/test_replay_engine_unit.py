@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Sequence
@@ -9,8 +10,17 @@ from uuid import UUID
 
 import pytest
 
-from execution.deterministic_context import DeterministicAbortError
-from execution.replay_engine import execute_hour, replay_hour
+from execution.deterministic_context import DeterministicAbortError, DeterministicContextBuilder
+from execution.replay_engine import (
+    _cluster_state_hash_for_prediction,
+    _compare_orders,
+    _compare_risk_events,
+    _compare_signals,
+    _plan_runtime_artifacts,
+    execute_hour,
+    replay_hour,
+)
+from execution.runtime_writer import AppendOnlyRuntimeWriter
 
 
 class _FakeDB:
@@ -159,7 +169,7 @@ class _FakeDB:
     def fetch_all(self, sql: str, params: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
         q = " ".join(sql.lower().split())
         if "select run_mode" in q and "from run_context" in q:
-            return [{"run_mode": "LIVE"}]
+            return [{"run_mode": "LIVE"}] if self.rows["run_context"] else []
         if "with ordered as" in q and "from cash_ledger" in q:
             return [{"violations": 0}]
         if "from run_context" in q:
@@ -244,7 +254,7 @@ def test_replay_reports_signal_hash_mismatch() -> None:
 def test_replay_without_run_context_aborts() -> None:
     db = _FakeDB()
     db.rows["run_context"] = []
-    with pytest.raises(DeterministicAbortError, match="run_context row not found"):
+    with pytest.raises(DeterministicAbortError, match="run_context not found for replay key"):
         replay_hour(
             db,
             UUID("11111111-1111-4111-8111-111111111111"),
@@ -271,3 +281,109 @@ def test_execute_hour_rolls_back_when_write_fails() -> None:
     with pytest.raises(RuntimeError, match="forced insert failure"):
         execute_hour(db, db.run_id, 1, "LIVE", hour)
     assert db._tx_open is False
+
+
+def test_plan_runtime_artifacts_missing_regime_aborts() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    context = replace(context, regimes=tuple())
+    with pytest.raises(DeterministicAbortError, match="Missing regime"):
+        _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+
+
+def test_plan_runtime_artifacts_cost_gate_logs_risk_event() -> None:
+    db = _FakeDB()
+    db.rows["model_prediction"][0]["expected_return"] = Decimal("0.000100000000000000")
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    planned = _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+    assert any(event.reason_code == "ENTER_COST_GATE_FAILED" for event in planned.risk_events)
+
+
+def test_cluster_state_hash_helper_missing_membership_or_cluster_state_aborts() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    prediction = context.predictions[0]
+
+    with pytest.raises(DeterministicAbortError, match="Missing cluster membership"):
+        _cluster_state_hash_for_prediction(replace(context, memberships=tuple()), prediction)
+    with pytest.raises(DeterministicAbortError, match="Missing cluster state"):
+        _cluster_state_hash_for_prediction(replace(context, cluster_states=tuple()), prediction)
+
+
+def test_compare_signals_presence_and_hash_mismatch_branches() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    signal = result.trade_signals[0]
+
+    stored_extra = [
+        {"signal_id": "extra", "decision_hash": "0" * 64, "row_hash": "0" * 64},
+        {"signal_id": str(signal.signal_id), "decision_hash": signal.decision_hash, "row_hash": signal.row_hash},
+    ]
+    mismatches = _compare_signals(result.trade_signals, stored_extra)
+    assert any(m.field_name == "presence" and m.actual == "stored_present" for m in mismatches)
+
+    mismatches = _compare_signals(result.trade_signals, [])
+    assert any(m.field_name == "presence" and m.actual == "stored_absent" for m in mismatches)
+
+    stored_bad_decision = [
+        {"signal_id": str(signal.signal_id), "decision_hash": "f" * 64, "row_hash": signal.row_hash}
+    ]
+    mismatches = _compare_signals(result.trade_signals, stored_bad_decision)
+    assert any(m.field_name == "decision_hash" for m in mismatches)
+
+    stored_bad_row = [
+        {"signal_id": str(signal.signal_id), "decision_hash": signal.decision_hash, "row_hash": "f" * 64}
+    ]
+    mismatches = _compare_signals(result.trade_signals, stored_bad_row)
+    assert any(m.field_name == "row_hash" for m in mismatches)
+
+
+def test_compare_orders_presence_and_hash_mismatch_branches() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    order = result.order_requests[0]
+
+    stored_extra = [
+        {"order_id": "extra", "row_hash": "0" * 64},
+        {"order_id": str(order.order_id), "row_hash": order.row_hash},
+    ]
+    mismatches = _compare_orders(result.order_requests, stored_extra)
+    assert any(m.field_name == "presence" and m.actual == "stored_present" for m in mismatches)
+
+    mismatches = _compare_orders(result.order_requests, [])
+    assert any(m.field_name == "presence" and m.actual == "stored_absent" for m in mismatches)
+
+    mismatches = _compare_orders(
+        result.order_requests,
+        [{"order_id": str(order.order_id), "row_hash": "f" * 64}],
+    )
+    assert any(m.field_name == "row_hash" for m in mismatches)
+
+
+def test_compare_risk_events_presence_and_hash_mismatch_branches() -> None:
+    db = _FakeDB()
+    db.rows["model_prediction"][0]["expected_return"] = Decimal("0.000100000000000000")
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    risk_event = result.risk_events[0]
+
+    stored_extra = [
+        {"risk_event_id": "extra", "row_hash": "0" * 64},
+        {"risk_event_id": str(risk_event.risk_event_id), "row_hash": risk_event.row_hash},
+    ]
+    mismatches = _compare_risk_events(result.risk_events, stored_extra)
+    assert any(m.field_name == "presence" and m.actual == "stored_present" for m in mismatches)
+
+    mismatches = _compare_risk_events(result.risk_events, [])
+    assert any(m.field_name == "presence" and m.actual == "stored_absent" for m in mismatches)
+
+    mismatches = _compare_risk_events(
+        result.risk_events,
+        [{"risk_event_id": str(risk_event.risk_event_id), "row_hash": "f" * 64}],
+    )
+    assert any(m.field_name == "row_hash" for m in mismatches)

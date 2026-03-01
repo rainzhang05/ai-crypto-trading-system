@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Sequence
@@ -10,6 +11,7 @@ from uuid import UUID
 
 import pytest
 
+from execution import deterministic_context as deterministic_context_module
 from execution.deterministic_context import DeterministicAbortError, DeterministicContextBuilder
 
 
@@ -225,6 +227,15 @@ def _backtest_leak_payload() -> dict[str, list[dict[str, Any]]]:
     return payload
 
 
+def _backtest_valid_payload() -> dict[str, list[dict[str, Any]]]:
+    payload = _backtest_leak_payload()
+    hour = payload["run_context"][0]["hour_ts_utc"]
+    payload["model_training_window"][0]["train_end_utc"] = hour - timedelta(hours=2)
+    payload["model_training_window"][0]["valid_start_utc"] = hour - timedelta(hours=1)
+    payload["model_training_window"][0]["valid_end_utc"] = hour + timedelta(hours=1)
+    return payload
+
+
 def test_build_context_live_success() -> None:
     payload = _live_payload()
     builder = DeterministicContextBuilder(_FakeDB(payload))
@@ -354,3 +365,461 @@ def test_live_regime_not_approved_aborts() -> None:
             run_mode="LIVE",
             hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
         )
+
+
+def test_context_find_methods_return_none_when_absent() -> None:
+    payload = _live_payload()
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+    )
+    assert context.find_training_window(999) is None
+    assert context.find_activation(999) is None
+    assert context.find_regime(asset_id=999, model_version_id=999) is None
+    assert context.find_membership(asset_id=999) is None
+    assert context.find_cluster_state(cluster_id=999) is None
+
+
+def test_context_no_predictions_aborts() -> None:
+    payload = _live_payload()
+    payload["model_prediction"] = []
+    with pytest.raises(DeterministicAbortError, match="No model_prediction rows"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_no_regimes_aborts() -> None:
+    payload = _live_payload()
+    payload["regime_output"] = []
+    with pytest.raises(DeterministicAbortError, match="No regime_output rows"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_risk_source_run_mismatch_aborts() -> None:
+    payload = _live_payload()
+    payload["risk_hourly_state"][0]["source_run_id"] = UUID("22222222-2222-4222-8222-222222222222")
+    with pytest.raises(DeterministicAbortError, match="Risk state source_run_id mismatch"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_capital_source_run_mismatch_aborts() -> None:
+    payload = _live_payload()
+    payload["portfolio_hourly_state"][0]["source_run_id"] = UUID("22222222-2222-4222-8222-222222222222")
+    with pytest.raises(DeterministicAbortError, match="Capital state source_run_id mismatch"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_risk_capital_cross_account_aborts() -> None:
+    payload = _live_payload()
+    payload["risk_hourly_state"][0]["account_id"] = 2
+    with pytest.raises(DeterministicAbortError, match="Cross-account contamination on risk/capital state"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_cluster_cross_account_aborts() -> None:
+    payload = _live_payload()
+    payload["cluster_exposure_hourly_state"][0]["account_id"] = 2
+    with pytest.raises(DeterministicAbortError, match="Cross-account contamination in cluster_exposure_hourly_state"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_prediction_cross_account_aborts() -> None:
+    payload = _live_payload()
+    payload["model_prediction"][0]["account_id"] = 2
+    with pytest.raises(DeterministicAbortError, match="Cross-account contamination in model_prediction"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_prediction_mode_mismatch_aborts() -> None:
+    payload = _live_payload()
+    payload["model_prediction"][0]["run_mode"] = "PAPER"
+    with pytest.raises(DeterministicAbortError, match="model_prediction run_mode mismatch"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_regime_cross_account_aborts() -> None:
+    payload = _live_payload()
+    payload["regime_output"][0]["account_id"] = 2
+    with pytest.raises(DeterministicAbortError, match="Cross-account contamination in regime_output"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_regime_mode_mismatch_aborts() -> None:
+    payload = _live_payload()
+    payload["regime_output"][0]["run_mode"] = "PAPER"
+    with pytest.raises(DeterministicAbortError, match="regime_output run_mode mismatch"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_missing_regime_for_prediction_aborts() -> None:
+    payload = _live_payload()
+    payload["regime_output"][0]["asset_id"] = 999
+    with pytest.raises(DeterministicAbortError, match="Missing regime_output for asset_id=1 model_version_id=22"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_backtest_prediction_lineage_mismatch_branches() -> None:
+    payload = _backtest_valid_payload()
+    checks = [
+        ("training_window_id", None, "BACKTEST prediction missing training_window_id"),
+        ("lineage_backtest_run_id", UUID("33333333-3333-4333-8333-333333333333"), "lineage_backtest_run_id mismatch"),
+        ("lineage_fold_index", 99, "lineage_fold_index mismatch"),
+        ("lineage_horizon", "H2", "lineage_horizon mismatch"),
+        ("model_version_id", 999, "model_version_id mismatch in lineage"),
+    ]
+    for field, value, msg in checks:
+        p = deepcopy(payload)
+        p["model_prediction"][0][field] = value
+        with pytest.raises(DeterministicAbortError, match=msg):
+            DeterministicContextBuilder(_FakeDB(p)).build_context(
+                run_id=p["run_context"][0]["run_id"],
+                account_id=1,
+                run_mode="BACKTEST",
+                hour_ts_utc=p["run_context"][0]["origin_hour_ts_utc"],
+            )
+
+
+def test_backtest_prediction_window_and_activation_branches() -> None:
+    payload = _backtest_valid_payload()
+    hour = payload["run_context"][0]["hour_ts_utc"]
+
+    p_before_valid = deepcopy(payload)
+    p_before_valid["model_training_window"][0]["valid_start_utc"] = hour + timedelta(hours=1)
+    with pytest.raises(DeterministicAbortError, match="before validation window"):
+        DeterministicContextBuilder(_FakeDB(p_before_valid)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="BACKTEST",
+            hour_ts_utc=hour,
+        )
+
+    p_after_valid = deepcopy(payload)
+    p_after_valid["model_training_window"][0]["valid_end_utc"] = hour
+    with pytest.raises(DeterministicAbortError, match="after validation window"):
+        DeterministicContextBuilder(_FakeDB(p_after_valid)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="BACKTEST",
+            hour_ts_utc=hour,
+        )
+
+    p_activation = deepcopy(payload)
+    p_activation["model_prediction"][0]["activation_id"] = 7
+    p_activation["model_activation_gate"] = [
+        {
+            "activation_id": 7,
+            "model_version_id": 22,
+            "run_mode": "BACKTEST",
+            "validation_window_end_utc": hour - timedelta(hours=1),
+            "status": "APPROVED",
+            "approval_hash": "9" * 64,
+        }
+    ]
+    with pytest.raises(DeterministicAbortError, match="must not carry activation_id"):
+        DeterministicContextBuilder(_FakeDB(p_activation)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="BACKTEST",
+            hour_ts_utc=hour,
+        )
+
+
+def test_backtest_regime_lineage_branches() -> None:
+    payload = _backtest_valid_payload()
+    checks = [
+        ("training_window_id", None, "BACKTEST regime_output missing training_window_id"),
+        ("lineage_backtest_run_id", UUID("33333333-3333-4333-8333-333333333333"), "lineage_backtest_run_id mismatch"),
+        ("lineage_fold_index", 99, "lineage_fold_index mismatch"),
+        ("lineage_horizon", "H2", "lineage_horizon mismatch"),
+        ("model_version_id", 999, "model_version_id mismatch in lineage"),
+    ]
+    for field, value, msg in checks:
+        p = deepcopy(payload)
+        p["regime_output"][0][field] = value
+        with pytest.raises(DeterministicAbortError, match=msg):
+            DeterministicContextBuilder(_FakeDB(p)).build_context(
+                run_id=p["run_context"][0]["run_id"],
+                account_id=1,
+                run_mode="BACKTEST",
+                hour_ts_utc=p["run_context"][0]["origin_hour_ts_utc"],
+            )
+
+
+def test_backtest_regime_window_and_activation_branches() -> None:
+    payload = _backtest_valid_payload()
+    hour = payload["run_context"][0]["hour_ts_utc"]
+    builder = DeterministicContextBuilder(_FakeDB(payload))
+    context = builder.build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="BACKTEST",
+        hour_ts_utc=hour,
+    )
+    regime = context.regimes[0]
+    window = context.training_windows[0]
+
+    with pytest.raises(DeterministicAbortError, match="training window not found"):
+        builder._validate_regime_lineage(replace(regime, training_window_id=999), context)
+
+    with pytest.raises(DeterministicAbortError, match="regime_output leaks into training period"):
+        bad_window = replace(window, train_end_utc=hour)
+        builder._validate_regime_lineage(regime, replace(context, training_windows=(bad_window,)))
+
+    with pytest.raises(DeterministicAbortError, match="regime_output before validation window"):
+        bad_window = replace(window, valid_start_utc=hour + timedelta(hours=1))
+        builder._validate_regime_lineage(regime, replace(context, training_windows=(bad_window,)))
+
+    with pytest.raises(DeterministicAbortError, match="regime_output after validation window"):
+        bad_window = replace(window, valid_end_utc=hour)
+        builder._validate_regime_lineage(regime, replace(context, training_windows=(bad_window,)))
+
+    with pytest.raises(DeterministicAbortError, match="regime_output must not carry activation_id"):
+        builder._validate_regime_lineage(replace(regime, activation_id=7), context)
+
+
+def test_live_prediction_and_regime_activation_mismatch_branches() -> None:
+    payload = _live_payload()
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+    )
+    builder = DeterministicContextBuilder(_FakeDB(payload))
+    prediction = context.predictions[0]
+    regime = context.regimes[0]
+
+    with pytest.raises(DeterministicAbortError, match="LIVE/PAPER prediction missing activation_id"):
+        builder._validate_prediction_lineage(replace(prediction, activation_id=None), context)
+    with pytest.raises(DeterministicAbortError, match="prediction activation record missing"):
+        builder._validate_prediction_lineage(prediction, replace(context, activation_records=tuple()))
+    with pytest.raises(DeterministicAbortError, match="prediction activation model_version mismatch"):
+        bad_activation = replace(context.activation_records[0], model_version_id=999)
+        builder._validate_prediction_lineage(prediction, replace(context, activation_records=(bad_activation,)))
+    with pytest.raises(DeterministicAbortError, match="prediction activation run_mode mismatch"):
+        bad_mode = replace(context.activation_records[0], run_mode="PAPER")
+        builder._validate_prediction_lineage(prediction, replace(context, activation_records=(bad_mode,)))
+
+    with pytest.raises(DeterministicAbortError, match="LIVE/PAPER regime_output missing activation_id"):
+        builder._validate_regime_lineage(replace(regime, activation_id=None), context)
+    with pytest.raises(DeterministicAbortError, match="regime_output activation record missing"):
+        builder._validate_regime_lineage(regime, replace(context, activation_records=tuple()))
+    with pytest.raises(DeterministicAbortError, match="regime_output activation not APPROVED"):
+        revoked = replace(context.activation_records[0], status="REVOKED")
+        builder._validate_regime_lineage(regime, replace(context, activation_records=(revoked,)))
+    with pytest.raises(DeterministicAbortError, match="regime_output activation model_version mismatch"):
+        bad_activation = replace(context.activation_records[0], model_version_id=999)
+        builder._validate_regime_lineage(regime, replace(context, activation_records=(bad_activation,)))
+    with pytest.raises(DeterministicAbortError, match="regime_output activation run_mode mismatch"):
+        bad_mode = replace(context.activation_records[0], run_mode="PAPER")
+        builder._validate_regime_lineage(regime, replace(context, activation_records=(bad_mode,)))
+
+
+def test_backtest_prediction_training_window_not_found_branch() -> None:
+    payload = _backtest_valid_payload()
+    hour = payload["run_context"][0]["hour_ts_utc"]
+    builder = DeterministicContextBuilder(_FakeDB(payload))
+    context = builder.build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="BACKTEST",
+        hour_ts_utc=hour,
+    )
+    with pytest.raises(DeterministicAbortError, match="prediction training window not found"):
+        builder._validate_prediction_lineage(context.predictions[0], replace(context, training_windows=tuple()))
+
+
+def test_context_missing_risk_or_capital_or_cost_profile_aborts() -> None:
+    payload = _live_payload()
+    p = deepcopy(payload)
+    p["risk_hourly_state"] = []
+    with pytest.raises(DeterministicAbortError, match="risk_hourly_state row not found"):
+        DeterministicContextBuilder(_FakeDB(p)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+    p = deepcopy(payload)
+    p["portfolio_hourly_state"] = []
+    with pytest.raises(DeterministicAbortError, match="portfolio_hourly_state row not found"):
+        DeterministicContextBuilder(_FakeDB(p)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+    p = deepcopy(payload)
+    p["cost_profile"] = []
+    with pytest.raises(DeterministicAbortError, match="No active KRAKEN cost_profile"):
+        DeterministicContextBuilder(_FakeDB(p)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_training_and_activation_collectors_cover_regime_only_ids() -> None:
+    payload = _live_payload()
+    builder = DeterministicContextBuilder(_FakeDB(payload))
+
+    prediction = replace(builder._load_predictions(payload["run_context"][0]["run_id"], 1, "LIVE", payload["run_context"][0]["origin_hour_ts_utc"])[0], training_window_id=None, activation_id=None)
+    regime_only_window = replace(
+        builder._load_regimes(payload["run_context"][0]["run_id"], 1, "LIVE", payload["run_context"][0]["origin_hour_ts_utc"])[0],
+        training_window_id=99,
+        activation_id=7,
+    )
+
+    payload["model_training_window"] = [
+        {
+            "training_window_id": 99,
+            "backtest_run_id": payload["run_context"][0]["run_id"],
+            "model_version_id": 22,
+            "fold_index": 0,
+            "horizon": "H1",
+            "train_end_utc": payload["run_context"][0]["hour_ts_utc"] - timedelta(hours=2),
+            "valid_start_utc": payload["run_context"][0]["hour_ts_utc"] - timedelta(hours=1),
+            "valid_end_utc": payload["run_context"][0]["hour_ts_utc"] + timedelta(hours=1),
+            "training_window_hash": "w" * 64,
+            "row_hash": "x" * 64,
+        }
+    ]
+
+    windows = builder._load_training_windows((prediction,), (regime_only_window,))
+    assert len(windows) == 1
+    activations = builder._load_activation_records((prediction,), (regime_only_window,))
+    assert len(activations) == 1
+
+
+def test_context_membership_loader_empty_and_duplicate_paths() -> None:
+    payload = _live_payload()
+    builder = DeterministicContextBuilder(_FakeDB(payload))
+    assert builder._load_memberships(tuple(), payload["run_context"][0]["hour_ts_utc"]) == tuple()
+
+    payload = _live_payload()
+    payload["asset_cluster_membership"] = [
+        {
+            "membership_id": 200,
+            "asset_id": 1,
+            "cluster_id": 9,
+            "membership_hash": "a" * 64,
+            "effective_from_utc": payload["run_context"][0]["hour_ts_utc"] - timedelta(hours=1),
+        },
+        {
+            "membership_id": 100,
+            "asset_id": 1,
+            "cluster_id": 9,
+            "membership_hash": "b" * 64,
+            "effective_from_utc": payload["run_context"][0]["hour_ts_utc"] - timedelta(days=1),
+        },
+    ]
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+    )
+    assert context.memberships[0].membership_id == 200
+
+
+def test_context_type_coercion_from_string_rows() -> None:
+    payload = _live_payload()
+    hour_iso = payload["run_context"][0]["hour_ts_utc"].isoformat()
+    run_id_str = str(payload["run_context"][0]["run_id"])
+    payload["run_context"][0]["run_id"] = run_id_str
+    payload["run_context"][0]["hour_ts_utc"] = hour_iso
+    payload["run_context"][0]["origin_hour_ts_utc"] = hour_iso
+    payload["model_prediction"][0]["run_id"] = run_id_str
+    payload["model_prediction"][0]["hour_ts_utc"] = hour_iso
+    payload["model_prediction"][0]["expected_return"] = "0.02"
+    payload["regime_output"][0]["run_id"] = run_id_str
+    payload["regime_output"][0]["hour_ts_utc"] = hour_iso
+    payload["risk_hourly_state"][0]["source_run_id"] = run_id_str
+    payload["risk_hourly_state"][0]["hour_ts_utc"] = hour_iso
+    payload["risk_hourly_state"][0]["portfolio_value"] = "10000"
+    payload["portfolio_hourly_state"][0]["source_run_id"] = run_id_str
+    payload["portfolio_hourly_state"][0]["hour_ts_utc"] = hour_iso
+    payload["portfolio_hourly_state"][0]["cash_balance"] = "10000"
+    payload["cluster_exposure_hourly_state"][0]["source_run_id"] = run_id_str
+    payload["cluster_exposure_hourly_state"][0]["hour_ts_utc"] = hour_iso
+    payload["model_activation_gate"][0]["validation_window_end_utc"] = (
+        payload["run_context"][0]["hour_ts_utc"] if isinstance(payload["run_context"][0]["hour_ts_utc"], datetime)
+        else datetime.fromisoformat(hour_iso) - timedelta(hours=1)
+    ).isoformat()
+
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=UUID(run_id_str),
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=datetime.fromisoformat(hour_iso),
+    )
+    assert isinstance(context.run_context.run_id, UUID)
+    assert isinstance(context.run_context.origin_hour_ts_utc, datetime)
+    assert isinstance(context.predictions[0].expected_return, Decimal)
+
+
+def test_context_scalar_coercion_helpers_from_strings() -> None:
+    assert deterministic_context_module._as_decimal("1.25") == Decimal("1.25")
+    parsed_dt = deterministic_context_module._as_datetime("2026-01-01T00:00:00+00:00")
+    assert isinstance(parsed_dt, datetime)
+    parsed_uuid = deterministic_context_module._as_uuid("11111111-1111-4111-8111-111111111111")
+    assert isinstance(parsed_uuid, UUID)
