@@ -231,6 +231,27 @@ def test_runtime_risk_gate_blocks_enter_when_kill_switch() -> None:
     assert violations[0].reason_code == "KILL_SWITCH_ACTIVE"
 
 
+def test_runtime_risk_gate_dual_halt_and_kill_prefers_kill_switch() -> None:
+    context = _Context()
+    context.risk_state = _RiskState(
+        account_id=1,
+        hour_ts_utc=context.risk_state.hour_ts_utc,
+        source_run_id=context.risk_state.source_run_id,
+        drawdown_pct=Decimal("0.0100000000"),
+        drawdown_tier="NORMAL",
+        max_concurrent_positions=10,
+        halt_new_entries=True,
+        kill_switch_active=True,
+        max_total_exposure_pct=Decimal("0.2"),
+        max_cluster_exposure_pct=Decimal("0.08"),
+        row_hash="r" * 64,
+    )
+    violations = enforce_runtime_risk_gate("ENTER", context)
+    assert len(violations) == 1
+    assert violations[0].reason_code == "KILL_SWITCH_ACTIVE"
+    assert violations[0].severity == "CRITICAL"
+
+
 def test_runtime_risk_gate_non_enter_action_has_no_violation() -> None:
     context = _Context()
     assert enforce_runtime_risk_gate("HOLD", context) == tuple()
@@ -564,6 +585,7 @@ def test_evaluate_adaptive_horizon_action_paths() -> None:
 
     context.risk_profile = replace(context.risk_profile, signal_persistence_required=2)
     pending_eval = evaluate_adaptive_horizon_action("HOLD", prediction, context)
+    assert pending_eval.action == "HOLD"
     assert pending_eval.reason_code == "ADAPTIVE_HORIZON_PERSISTENCE_PENDING"
 
     context._positions = {}
@@ -588,6 +610,41 @@ def test_evaluate_adaptive_horizon_action_paths() -> None:
     no_override_eval = evaluate_adaptive_horizon_action("HOLD", prediction, context)
     assert no_override_eval.reason_code == "ADAPTIVE_HORIZON_NO_OVERRIDE"
 
+
+def test_evaluate_adaptive_horizon_action_persistence_pending_forces_hold_from_exit() -> None:
+    context = _Context()
+    prediction = type(
+        "Prediction",
+        (),
+        {
+            "asset_id": 1,
+            "expected_return": Decimal("-0.020000000000000000"),
+            "prob_up": Decimal("0.2000000000"),
+        },
+    )()
+    context.risk_profile = replace(context.risk_profile, signal_persistence_required=2)
+
+    pending_eval = evaluate_adaptive_horizon_action("EXIT", prediction, context)
+    assert pending_eval.action == "HOLD"
+    assert pending_eval.reason_code == "ADAPTIVE_HORIZON_PERSISTENCE_PENDING"
+
+
+def test_evaluate_adaptive_horizon_action_persistence_pending_forces_hold_from_enter() -> None:
+    context = _Context()
+    prediction = type(
+        "Prediction",
+        (),
+        {
+            "asset_id": 1,
+            "expected_return": Decimal("-0.020000000000000000"),
+            "prob_up": Decimal("0.2000000000"),
+        },
+    )()
+    context.risk_profile = replace(context.risk_profile, signal_persistence_required=3)
+
+    pending_eval = evaluate_adaptive_horizon_action("ENTER", prediction, context)
+    assert pending_eval.action == "HOLD"
+    assert pending_eval.reason_code == "ADAPTIVE_HORIZON_PERSISTENCE_PENDING"
 
 def test_evaluate_severe_loss_recovery_action_paths() -> None:
     context = _Context()

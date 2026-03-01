@@ -18,8 +18,8 @@ System goals:
 
 Current state:
 
-- Phase 0-2 deterministic core and replay scaffolding are completed.
-- Strategy logic in live adaptive form is specified and ready for implementation phases.
+- Phase 0-3 deterministic core, replay harness, and governed risk runtime are completed.
+- Phase 4 order lifecycle implementation is ready to begin per `PROJECT_ROADMAP.md`.
 
 Authoritative strategy logic:
 

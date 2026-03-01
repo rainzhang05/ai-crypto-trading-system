@@ -16,8 +16,8 @@ Core intent:
 
 Current project state:
 
-- Phase 0-2 deterministic data/runtime/replay scaffolding is complete.
-- Live adaptive strategy behavior is fully specified in docs and ready for implementation phases.
+- Phase 0-3 deterministic core, replay harness, and governed risk runtime are complete.
+- Phase 4 (order lifecycle engine) is ready to begin per `docs/specs/PROJECT_ROADMAP.md`.
 
 ---
 

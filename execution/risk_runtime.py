@@ -213,14 +213,11 @@ def evaluate_adaptive_horizon_action(
 ) -> ActionEvaluation:
     """
     Deterministically apply adaptive horizon action overrides for open positions.
-    """
-    if candidate_action == "ENTER":
-        return ActionEvaluation(
-            action=candidate_action,
-            reason_code="ADAPTIVE_HORIZON_NO_OVERRIDE",
-            detail="Entry candidates are governed by admission gates, not horizon extension logic.",
-        )
 
+    Persistence policy is safety-biased for open positions: when a negative
+    signal is detected but persistence confirmations are still pending, EXIT-like
+    intent is deferred to HOLD.
+    """
     profile = _resolve_runtime_profile(context, risk_profile)
     position = context.find_position(prediction.asset_id)
     if position is None or position.quantity <= 0:
@@ -228,6 +225,25 @@ def evaluate_adaptive_horizon_action(
             action=candidate_action,
             reason_code="ADAPTIVE_HORIZON_NO_OPEN_POSITION",
             detail="No open position exists for adaptive horizon override.",
+        )
+
+    if candidate_action == "ENTER":
+        if (
+            prediction.expected_return <= profile.exit_expected_return_threshold
+            and profile.signal_persistence_required > 1
+        ):
+            return ActionEvaluation(
+                action="HOLD",
+                reason_code="ADAPTIVE_HORIZON_PERSISTENCE_PENDING",
+                detail=(
+                    "Negative signal detected but persistence window requires additional confirmations; "
+                    "forcing HOLD until persistence is satisfied."
+                ),
+            )
+        return ActionEvaluation(
+            action=candidate_action,
+            reason_code="ADAPTIVE_HORIZON_NO_OVERRIDE",
+            detail="Entry candidates are governed by admission gates, not horizon extension logic.",
         )
 
     if prediction.expected_return >= profile.hold_min_expected_return:
@@ -245,9 +261,12 @@ def evaluate_adaptive_horizon_action(
                 detail="Negative expectation threshold breached with satisfied persistence policy.",
             )
         return ActionEvaluation(
-            action=candidate_action,
+            action="HOLD",
             reason_code="ADAPTIVE_HORIZON_PERSISTENCE_PENDING",
-            detail="Negative signal detected but persistence window requires additional confirmations.",
+            detail=(
+                "Negative signal detected but persistence window requires additional confirmations; "
+                "forcing HOLD until persistence is satisfied."
+            ),
         )
 
     return ActionEvaluation(
@@ -346,18 +365,14 @@ def enforce_cross_account_isolation(context: "ExecutionContext") -> tuple[RiskVi
 
 
 def enforce_runtime_risk_gate(action: str, context: "ExecutionContext") -> tuple[RiskViolation, ...]:
-    """Enforce halt/kill-switch runtime admission rules."""
+    """
+    Enforce halt/kill-switch runtime admission rules.
+
+    Kill-switch precedence is strict: when both halt and kill switch are active,
+    the emitted gating reason is KILL_SWITCH_ACTIVE.
+    """
     if action != "ENTER":
         return tuple()
-    if context.risk_state.halt_new_entries:
-        return (
-            RiskViolation(
-                event_type="RISK_GATE",
-                severity="HIGH",
-                reason_code="HALT_NEW_ENTRIES_ACTIVE",
-                detail="halt_new_entries is TRUE; new entries are blocked.",
-            ),
-        )
     if context.risk_state.kill_switch_active:
         return (
             RiskViolation(
@@ -365,6 +380,15 @@ def enforce_runtime_risk_gate(action: str, context: "ExecutionContext") -> tuple
                 severity="CRITICAL",
                 reason_code="KILL_SWITCH_ACTIVE",
                 detail="kill_switch_active is TRUE; new entries are blocked.",
+            ),
+        )
+    if context.risk_state.halt_new_entries:
+        return (
+            RiskViolation(
+                event_type="RISK_GATE",
+                severity="HIGH",
+                reason_code="HALT_NEW_ENTRIES_ACTIVE",
+                detail="halt_new_entries is TRUE; new entries are blocked.",
             ),
         )
     return tuple()

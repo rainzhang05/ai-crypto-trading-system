@@ -10,6 +10,8 @@ from uuid import UUID
 
 import pytest
 
+import execution.replay_engine as replay_engine_module
+from execution.decision_engine import DecisionResult
 from execution.deterministic_context import DeterministicAbortError, DeterministicContextBuilder
 from execution.replay_engine import (
     _cluster_state_hash_for_prediction,
@@ -544,3 +546,59 @@ def test_plan_runtime_artifacts_severe_loss_entry_gate_logs_risk_event() -> None
         risk_profile=profile,
     )
     assert any(event.reason_code == "SEVERE_LOSS_RECOVERY_ENTRY_BLOCKED" for event in planned.risk_events)
+
+
+def test_plan_runtime_artifacts_persistence_pending_forces_hold_for_exit_like_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    db.rows["model_prediction"][0]["expected_return"] = Decimal("-0.020000000000000000")
+    db.rows["risk_profile"][0]["signal_persistence_required"] = 2
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+
+    monkeypatch.setattr(
+        replay_engine_module,
+        "deterministic_decision",
+        lambda **_: DecisionResult(
+            decision_hash="d" * 64,
+            action="EXIT",
+            direction="FLAT",
+            confidence=Decimal("0.5000000000"),
+            position_size_fraction=Decimal("0.0000000000"),
+        ),
+    )
+
+    planned = _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+    assert len(planned.trade_signals) == 1
+    assert planned.trade_signals[0].action == "HOLD"
+    assert len(planned.order_requests) == 0
+    decision_trace = next(event for event in planned.risk_events if event.event_type == "DECISION_TRACE")
+    assert decision_trace.reason_code == "ADAPTIVE_HORIZON_PERSISTENCE_PENDING"
+
+
+def test_plan_runtime_artifacts_dual_halt_and_kill_emits_kill_switch_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    db.rows["risk_hourly_state"][0]["halt_new_entries"] = True
+    db.rows["risk_hourly_state"][0]["kill_switch_active"] = True
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+
+    monkeypatch.setattr(
+        replay_engine_module,
+        "deterministic_decision",
+        lambda **_: DecisionResult(
+            decision_hash="e" * 64,
+            action="ENTER",
+            direction="LONG",
+            confidence=Decimal("0.7000000000"),
+            position_size_fraction=Decimal("0.0100000000"),
+        ),
+    )
+
+    planned = _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+    gating_events = tuple(event for event in planned.risk_events if event.event_type != "DECISION_TRACE")
+    assert any(event.reason_code == "KILL_SWITCH_ACTIVE" for event in gating_events)
+    assert all(event.reason_code != "HALT_NEW_ENTRIES_ACTIVE" for event in gating_events)

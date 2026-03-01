@@ -59,3 +59,11 @@ def test_phase_2_validation_sql_returns_zero(pg_conn: Any) -> None:
     assert results, "No check rows were returned by Phase 2 validation SQL."
     for row in results:
         assert int(row["violations"]) == 0, f"{row['check_name']} has violations={row['violations']}"
+
+
+def test_phase_3_validation_sql_returns_zero(pg_conn: Any) -> None:
+    sql_path = Path("docs/validations/PHASE_3_RUNTIME_VALIDATION.sql")
+    results = _run_validation_sql(pg_conn, sql_path)
+    assert results, "No check rows were returned by Phase 3 validation SQL."
+    for row in results:
+        assert int(row["violations"]) == 0, f"{row['check_name']} has violations={row['violations']}"
