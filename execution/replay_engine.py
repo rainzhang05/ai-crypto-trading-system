@@ -72,20 +72,43 @@ def execute_hour(
     context = builder.build_context(run_id, account_id, run_mode, hour_ts_utc)
     writer = AppendOnlyRuntimeWriter(db)
 
-    # Preserve and validate ledger continuity before writes.
-    writer.assert_ledger_continuity(account_id=context.run_context.account_id, run_mode=context.run_context.run_mode)
-    planned = _plan_runtime_artifacts(context, writer)
+    begin = getattr(db, "begin", None)
+    commit = getattr(db, "commit", None)
+    rollback = getattr(db, "rollback", None)
+    tx_started = False
 
-    for signal in planned.trade_signals:
-        writer.insert_trade_signal(signal)
-    for order in planned.order_requests:
-        writer.insert_order_request(order)
-    for risk_event in planned.risk_events:
-        writer.insert_risk_event(risk_event)
+    try:
+        if callable(begin):
+            begin()
+            tx_started = True
 
-    # Preserve and validate ledger continuity after writes.
-    writer.assert_ledger_continuity(account_id=context.run_context.account_id, run_mode=context.run_context.run_mode)
-    return planned
+        # Preserve and validate ledger continuity before writes.
+        writer.assert_ledger_continuity(
+            account_id=context.run_context.account_id,
+            run_mode=context.run_context.run_mode,
+        )
+        planned = _plan_runtime_artifacts(context, writer)
+
+        for signal in planned.trade_signals:
+            writer.insert_trade_signal(signal)
+        for order in planned.order_requests:
+            writer.insert_order_request(order)
+        for risk_event in planned.risk_events:
+            writer.insert_risk_event(risk_event)
+
+        # Preserve and validate ledger continuity after writes.
+        writer.assert_ledger_continuity(
+            account_id=context.run_context.account_id,
+            run_mode=context.run_context.run_mode,
+        )
+
+        if tx_started and callable(commit):
+            commit()
+        return planned
+    except Exception:
+        if tx_started and callable(rollback):
+            rollback()
+        raise
 
 
 def replay_hour(
