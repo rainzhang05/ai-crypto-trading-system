@@ -102,6 +102,16 @@ if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_1d_validati
   exit 1
 fi
 
+echo "[test_all] Running Phase 2 validation gates..."
+docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
+  < "${ROOT_DIR}/governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql" \
+  | tee "${LOG_DIR}/phase_2_validation.log"
+
+if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_2_validation.log"; then
+  echo "[test_all] ERROR: Phase 2 validation gate failed." >&2
+  exit 1
+fi
+
 echo "[test_all] Verifying schema equivalence against canonical bootstrap..."
 docker exec "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" --schema-only --no-owner --no-privileges \
   > "${LOG_DIR}/live_schema.sql"
@@ -128,13 +138,23 @@ if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/test_runtime_inse
   exit 1
 fi
 
-echo "[test_all] Running pytest + coverage..."
 export TEST_DB_HOST="localhost"
 export TEST_DB_PORT="${DB_PORT}"
 export TEST_DB_NAME="${DB_NAME}"
 export TEST_DB_USER="${DB_USER}"
 export TEST_DB_PASSWORD="${DB_PASSWORD}"
 
+echo "[test_all] Running Phase 2 replay-tool smoke check..."
+python "${ROOT_DIR}/scripts/replay_cli.py" \
+  --host "${TEST_DB_HOST}" \
+  --port "${TEST_DB_PORT}" \
+  --dbname "${TEST_DB_NAME}" \
+  --user "${TEST_DB_USER}" \
+  --password "${TEST_DB_PASSWORD}" \
+  replay-tool \
+  | tee "${LOG_DIR}/phase_2_replay_tool_smoke.log"
+
+echo "[test_all] Running pytest + coverage..."
 cd "${ROOT_DIR}"
 pytest | tee "${LOG_DIR}/pytest.log"
 

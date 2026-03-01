@@ -337,4 +337,74 @@ Status: Phase 1C closed; Phase 1D authorized to start
 
 ---
 
+## DECISION ARCH-0004 — PHASE 2 REPLAY HARNESS ARCHITECTURE CLOSURE
+
+Date: 2026-03-01  
+Module Affected: Replay Harness Layer, Governance Validation Layer, Replay CLI
+
+### Description
+
+Phase 2 replay harness architecture is approved as implemented with deterministic tooling and governance gates.
+
+Delivered components:
+
+1. Snapshot boundary loader:
+   - `execution/replay_harness.py::load_snapshot_boundary(...)`
+
+2. Canonical serialization engine:
+   - `execution/replay_harness.py::canonical_serialize(...)`
+
+3. Deterministic hash DAG recomputation:
+   - `execution/replay_harness.py::recompute_hash_dag(...)`
+
+4. Failure classification engine:
+   - `execution/replay_harness.py::classify_replay_failure(...)`
+
+5. Replay comparison engine:
+   - `execution/replay_harness.py::compare_replay_with_manifest(...)`
+
+6. Deterministic replay tool surface:
+   - `scripts/replay_cli.py` commands:
+     - `replay-manifest`
+     - `replay-window`
+     - `replay-tool`
+   - explicit status contract: `REPLAY PARITY: TRUE/FALSE`
+
+7. Governance validation gate:
+   - `governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
+
+8. Clean-room pipeline wiring:
+   - `scripts/test_all.sh` executes Phase 2 validation SQL and replay-tool smoke check.
+
+### Reason
+
+Phase 2 is required to transform replay from module-level checks into a deterministic replay tool with auditable parity output and governance-enforced integrity gates. This closes the roadmap requirement:
+
+- Deliverable: deterministic replay tool.
+- System output: `REPLAY PARITY: TRUE`.
+
+### Risk Impact
+
+LOW / POSITIVE.
+
+- No changes to position sizing, fee/slippage assumptions, exposure caps, drawdown thresholds, or order lifecycle semantics.
+- No bypasses added around schema constraints, append-only controls, or runtime risk gating.
+- Changes are additive to replay/audit validation and improve detection of replay-root and manifest drift.
+
+### Backtest Impact
+
+None to strategy economics.
+
+- No model, signal, order, or ledger formula changes.
+- Existing historical results remain governed by existing deterministic schema/runtime constraints.
+- Replay attestation surface is stronger and more explicit.
+
+### Approval
+
+Architect: Approved  
+Auditor: Validation gate passed  
+Status: Approved; Phase 2 closed, Phase 3 authorized
+
+---
+
 END OF ARCHITECTURAL DECISIONS LOG

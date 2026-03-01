@@ -14,10 +14,12 @@ from execution.replay_harness import (
     canonical_serialize,
     classify_replay_failure,
     compare_replay_with_manifest,
+    discover_replay_targets,
     list_replay_targets,
     load_snapshot_boundary,
     recompute_hash_dag,
     replay_manifest_parity,
+    replay_manifest_tool_parity,
     replay_manifest_window_parity,
 )
 
@@ -317,6 +319,22 @@ class _WindowReplayDB:
 
     def fetch_all(self, sql: str, params: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
         q = " ".join(sql.lower().split())
+        if "from run_context" in q and "where 1 = 1" in q:
+            results: list[dict[str, Any]] = []
+            for row in self.run_context_rows:
+                if "account_id" in params and int(row["account_id"]) != int(params["account_id"]):
+                    continue
+                if "run_mode" in params and str(row["run_mode"]) != str(params["run_mode"]):
+                    continue
+                if (
+                    "start_hour_ts_utc" in params
+                    and row["origin_hour_ts_utc"] < params["start_hour_ts_utc"]
+                ):
+                    continue
+                if "end_hour_ts_utc" in params and row["origin_hour_ts_utc"] > params["end_hour_ts_utc"]:
+                    continue
+                results.append(dict(row))
+            return results
         if "from run_context" in q and "origin_hour_ts_utc >=" in q:
             results: list[dict[str, Any]] = []
             for row in self.run_context_rows:
@@ -456,3 +474,65 @@ def test_replay_manifest_window_parity_reports_mixed_results() -> None:
     assert report.items[0].report.replay_parity is True
     assert report.items[1].target.run_id == db.run_id_2
     assert report.items[1].report.replay_parity is False
+
+
+def test_discover_replay_targets_with_filters_and_empty_result() -> None:
+    db = _WindowReplayDB()
+    all_targets = discover_replay_targets(db)
+    assert len(all_targets) == 2
+    clipped = discover_replay_targets(db, max_targets=1)
+    assert len(clipped) == 1
+    assert clipped[0].run_id == db.run_id_1
+
+    scoped = discover_replay_targets(
+        db,
+        account_id=1,
+        run_mode="LIVE",
+        start_hour_ts_utc=db.hour_2,
+        end_hour_ts_utc=db.hour_2,
+    )
+    assert len(scoped) == 1
+    assert scoped[0].run_id == db.run_id_2
+
+    no_targets = discover_replay_targets(
+        db,
+        account_id=1,
+        run_mode="LIVE",
+        start_hour_ts_utc=datetime(2026, 1, 2, 0, 0, tzinfo=timezone.utc),
+        end_hour_ts_utc=datetime(2026, 1, 2, 1, 0, tzinfo=timezone.utc),
+    )
+    assert no_targets == tuple()
+
+
+def test_discover_replay_targets_invalid_bounds_or_limit_abort() -> None:
+    db = _WindowReplayDB()
+    with pytest.raises(DeterministicAbortError, match="end_hour_ts_utc must be >= start_hour_ts_utc"):
+        discover_replay_targets(db, start_hour_ts_utc=db.hour_2, end_hour_ts_utc=db.hour_1)
+    with pytest.raises(DeterministicAbortError, match="max_targets must be > 0"):
+        discover_replay_targets(db, max_targets=0)
+
+
+def test_replay_manifest_tool_parity_empty_targets_returns_true() -> None:
+    db = _WindowReplayDB()
+    report = replay_manifest_tool_parity(
+        db=db,
+        account_id=1,
+        run_mode="LIVE",
+        start_hour_ts_utc=datetime(2026, 1, 3, 0, 0, tzinfo=timezone.utc),
+        end_hour_ts_utc=datetime(2026, 1, 3, 1, 0, tzinfo=timezone.utc),
+    )
+    assert report.replay_parity is True
+    assert report.total_targets == 0
+    assert report.items == tuple()
+
+
+def test_replay_manifest_tool_parity_reports_mixed_results() -> None:
+    db = _WindowReplayDB()
+    _align_window_db_roots(db)
+    db.manifest_rows[1]["replay_root_hash"] = "8" * 64
+
+    report = replay_manifest_tool_parity(db=db, run_mode="LIVE")
+    assert report.replay_parity is False
+    assert report.total_targets == 2
+    assert report.passed_targets == 1
+    assert report.failed_targets == 1

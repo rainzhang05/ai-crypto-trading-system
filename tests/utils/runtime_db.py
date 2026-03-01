@@ -64,6 +64,29 @@ def deterministic_uuid(seed: str) -> UUID:
     return uuid5(NAMESPACE_URL, f"phase-test::{seed}")
 
 
+def _align_hour_with_cost_profile_window(
+    hour: datetime,
+    effective_from_utc: datetime,
+    effective_to_utc: Optional[datetime],
+) -> datetime:
+    """Return an hour-aligned timestamp that falls within a cost-profile window."""
+    if hour < effective_from_utc:
+        aligned = effective_from_utc.replace(minute=0, second=0, microsecond=0)
+        if aligned < effective_from_utc:
+            aligned += timedelta(hours=1)
+        hour = aligned
+    if effective_to_utc is not None and hour >= effective_to_utc:
+        candidate = (effective_to_utc - timedelta(hours=1)).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        if candidate < effective_from_utc:
+            raise RuntimeError("No hour-aligned timestamp fits active KRAKEN cost_profile window.")
+        hour = candidate
+    return hour
+
+
 @dataclass(frozen=True)
 class FixtureIds:
     run_id: UUID
@@ -144,30 +167,51 @@ def insert_runtime_fixture(
         FROM cost_profile
         WHERE venue = 'KRAKEN'
           AND is_active = TRUE
+          AND effective_from_utc <= :hour_ts_utc
+          AND (effective_to_utc IS NULL OR effective_to_utc > :hour_ts_utc)
         ORDER BY effective_from_utc DESC, cost_profile_id DESC
         LIMIT 1
         """,
-        {},
+        {"hour_ts_utc": hour},
     )
     if cost_profile_row is None:
-        cost_profile_row = db.fetch_one(
+        existing_active_row = db.fetch_one(
             """
-            INSERT INTO cost_profile (
-                venue, fee_rate, slippage_model_name, slippage_param_hash,
-                effective_from_utc, effective_to_utc, is_active
-            ) VALUES (
-                'KRAKEN', 0.004000, 'DET_TEST', :slippage_param_hash,
-                :effective_from_utc, NULL, TRUE
-            )
-            RETURNING cost_profile_id
+            SELECT cost_profile_id, effective_from_utc, effective_to_utc
+            FROM cost_profile
+            WHERE venue = 'KRAKEN'
+              AND is_active = TRUE
+            ORDER BY effective_from_utc DESC, cost_profile_id DESC
+            LIMIT 1
             """,
-            {
-                "slippage_param_hash": "a" * 64,
-                "effective_from_utc": hour - timedelta(days=30),
-            },
+            {},
         )
+        if existing_active_row is not None:
+            hour = _align_hour_with_cost_profile_window(
+                hour=hour,
+                effective_from_utc=existing_active_row["effective_from_utc"],
+                effective_to_utc=existing_active_row["effective_to_utc"],
+            )
+            cost_profile_row = {"cost_profile_id": int(existing_active_row["cost_profile_id"])}
+        else:
+            cost_profile_row = db.fetch_one(
+                """
+                INSERT INTO cost_profile (
+                    venue, fee_rate, slippage_model_name, slippage_param_hash,
+                    effective_from_utc, effective_to_utc, is_active
+                ) VALUES (
+                    'KRAKEN', 0.004000, 'DET_TEST', :slippage_param_hash,
+                    :effective_from_utc, NULL, TRUE
+                )
+                RETURNING cost_profile_id
+                """,
+                {
+                    "slippage_param_hash": "a" * 64,
+                    "effective_from_utc": hour - timedelta(days=30),
+                },
+            )
         if cost_profile_row is None:
-            raise RuntimeError("Failed to insert cost profile fixture.")
+            raise RuntimeError("Failed to resolve active cost profile fixture.")
     cost_profile_id = int(cost_profile_row["cost_profile_id"])
 
     db.execute(

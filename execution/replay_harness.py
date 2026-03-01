@@ -663,6 +663,55 @@ def list_replay_targets(
     return targets[:max_targets]
 
 
+def discover_replay_targets(
+    db: ReplayHarnessDatabase,
+    account_id: Optional[int] = None,
+    run_mode: Optional[str] = None,
+    start_hour_ts_utc: Optional[datetime] = None,
+    end_hour_ts_utc: Optional[datetime] = None,
+    max_targets: Optional[int] = None,
+) -> tuple[ReplayTarget, ...]:
+    """Discover replay targets with optional deterministic filters."""
+    if start_hour_ts_utc is not None and end_hour_ts_utc is not None and end_hour_ts_utc < start_hour_ts_utc:
+        raise DeterministicAbortError("end_hour_ts_utc must be >= start_hour_ts_utc.")
+    if max_targets is not None and max_targets <= 0:
+        raise DeterministicAbortError("max_targets must be > 0 when provided.")
+
+    sql = """
+        SELECT run_id, account_id, run_mode, origin_hour_ts_utc
+        FROM run_context
+        WHERE 1 = 1
+    """
+    params: dict[str, Any] = {}
+    if account_id is not None:
+        sql += " AND account_id = :account_id"
+        params["account_id"] = account_id
+    if run_mode is not None:
+        sql += " AND run_mode = :run_mode"
+        params["run_mode"] = run_mode
+    if start_hour_ts_utc is not None:
+        sql += " AND origin_hour_ts_utc >= :start_hour_ts_utc"
+        params["start_hour_ts_utc"] = start_hour_ts_utc
+    if end_hour_ts_utc is not None:
+        sql += " AND origin_hour_ts_utc <= :end_hour_ts_utc"
+        params["end_hour_ts_utc"] = end_hour_ts_utc
+    sql += " ORDER BY account_id ASC, run_mode ASC, origin_hour_ts_utc ASC, run_id ASC"
+
+    rows = db.fetch_all(sql, params)
+    targets = tuple(
+        ReplayTarget(
+            run_id=UUID(str(row["run_id"])),
+            account_id=int(row["account_id"]),
+            run_mode=str(row["run_mode"]),
+            origin_hour_ts_utc=row["origin_hour_ts_utc"],
+        )
+        for row in rows
+    )
+    if max_targets is None:
+        return targets
+    return targets[:max_targets]
+
+
 def replay_manifest_window_parity(
     db: ReplayHarnessDatabase,
     account_id: int,
@@ -680,6 +729,61 @@ def replay_manifest_window_parity(
         end_hour_ts_utc=end_hour_ts_utc,
         max_targets=max_targets,
     )
+    items = tuple(
+        ReplayWindowItem(
+            target=target,
+            report=replay_manifest_parity(
+                db=db,
+                run_id=target.run_id,
+                account_id=target.account_id,
+                origin_hour_ts_utc=target.origin_hour_ts_utc,
+            ),
+        )
+        for target in targets
+    )
+    failed_targets = sum(1 for item in items if not item.report.replay_parity)
+    total_targets = len(items)
+    return ReplayWindowReport(
+        replay_parity=(failed_targets == 0),
+        total_targets=total_targets,
+        passed_targets=total_targets - failed_targets,
+        failed_targets=failed_targets,
+        items=items,
+    )
+
+
+def replay_manifest_tool_parity(
+    db: ReplayHarnessDatabase,
+    account_id: Optional[int] = None,
+    run_mode: Optional[str] = None,
+    start_hour_ts_utc: Optional[datetime] = None,
+    end_hour_ts_utc: Optional[datetime] = None,
+    max_targets: Optional[int] = None,
+) -> ReplayWindowReport:
+    """
+    Deterministic replay tool entrypoint.
+
+    This function discovers replay targets from run_context using optional filters
+    and evaluates replay parity for each target. An empty target set is treated as
+    parity-true with zero totals, which keeps clean-room bootstrap checks deterministic.
+    """
+    targets = discover_replay_targets(
+        db=db,
+        account_id=account_id,
+        run_mode=run_mode,
+        start_hour_ts_utc=start_hour_ts_utc,
+        end_hour_ts_utc=end_hour_ts_utc,
+        max_targets=max_targets,
+    )
+    if not targets:
+        return ReplayWindowReport(
+            replay_parity=True,
+            total_targets=0,
+            passed_targets=0,
+            failed_targets=0,
+            items=tuple(),
+        )
+
     items = tuple(
         ReplayWindowItem(
             target=target,

@@ -23,7 +23,11 @@ if str(ROOT_DIR) not in sys.path:
 
 from execution.replay_engine import execute_hour, replay_hour
 from execution.decision_engine import normalize_timestamp
-from execution.replay_harness import replay_manifest_parity, replay_manifest_window_parity
+from execution.replay_harness import (
+    replay_manifest_parity,
+    replay_manifest_tool_parity,
+    replay_manifest_window_parity,
+)
 
 
 _NAMED_PARAM_RE = re.compile(r"(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)")
@@ -159,6 +163,16 @@ def _build_parser() -> argparse.ArgumentParser:
     window_cmd.add_argument("--end-hour-ts-utc", required=True, type=_parse_hour_ts)
     window_cmd.add_argument("--max-targets", type=int, default=None)
 
+    tool_cmd = subparsers.add_parser(
+        "replay-tool",
+        help="Deterministic replay tool across discovered run_context targets",
+    )
+    tool_cmd.add_argument("--account-id", type=int, default=None)
+    tool_cmd.add_argument("--run-mode", choices=("BACKTEST", "PAPER", "LIVE"), default=None)
+    tool_cmd.add_argument("--start-hour-ts-utc", type=_parse_hour_ts, default=None)
+    tool_cmd.add_argument("--end-hour-ts-utc", type=_parse_hour_ts, default=None)
+    tool_cmd.add_argument("--max-targets", type=int, default=None)
+
     return parser
 
 
@@ -239,14 +253,24 @@ def main() -> int:
             print(json.dumps(payload, sort_keys=True))
             return 0 if phase2_report.replay_parity else 2
 
-        window_report = replay_manifest_window_parity(
-            db=db,
-            account_id=args.account_id,
-            run_mode=args.run_mode,
-            start_hour_ts_utc=args.start_hour_ts_utc,
-            end_hour_ts_utc=args.end_hour_ts_utc,
-            max_targets=args.max_targets,
-        )
+        if args.command == "replay-window":
+            window_report = replay_manifest_window_parity(
+                db=db,
+                account_id=args.account_id,
+                run_mode=args.run_mode,
+                start_hour_ts_utc=args.start_hour_ts_utc,
+                end_hour_ts_utc=args.end_hour_ts_utc,
+                max_targets=args.max_targets,
+            )
+        else:
+            window_report = replay_manifest_tool_parity(
+                db=db,
+                account_id=args.account_id,
+                run_mode=args.run_mode,
+                start_hour_ts_utc=args.start_hour_ts_utc,
+                end_hour_ts_utc=args.end_hour_ts_utc,
+                max_targets=args.max_targets,
+            )
         payload = {
             "status": "REPLAY PARITY: TRUE" if window_report.replay_parity else "REPLAY PARITY: FALSE",
             "replay_parity": window_report.replay_parity,

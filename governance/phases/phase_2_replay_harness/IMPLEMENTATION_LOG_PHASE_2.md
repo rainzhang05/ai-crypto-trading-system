@@ -49,3 +49,28 @@ Phase 2 replay harness architecture initial implementation.
   - invalid window bounds and invalid `max_targets`
   - no-target window abort
   - mixed pass/fail replay parity window summary
+
+## Phase 2 Step 3 (Governance Validation + DB Integration)
+- Added Phase 2 governance validation gate:
+  - `governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
+  - Includes replay-manifest integrity checks and deterministic seed-collision parity checks.
+- Wired Phase 2 validation into clean-room pipeline:
+  - `scripts/test_all.sh` now executes Phase 2 validation and fails on non-zero violations.
+- Extended SQL validation integration test surface:
+  - `tests/integration/test_validation_sql.py` includes Phase 2 gate assertion.
+- Added DB-backed replay harness integration tests:
+  - `tests/integration/test_replay_harness_integration.py`
+  - Covers mismatch detection, successful parity after deterministic root alignment, single-target window parity, and no-target abort behavior.
+
+## Phase 2 Step 4 (Deterministic Replay Tool Closure)
+- Added global replay target discovery with optional filters:
+  - `discover_replay_targets(...)`
+- Added deterministic replay tool entrypoint:
+  - `replay_manifest_tool_parity(...)`
+  - Produces parity-true result on empty target set (clean-room bootstrap safe behavior).
+- Extended CLI with deterministic replay tool mode:
+  - `scripts/replay_cli.py replay-tool`
+  - Supports optional filters (`account_id`, `run_mode`, start/end hour, `max_targets`)
+  - Emits explicit status string: `REPLAY PARITY: TRUE/FALSE`.
+- Added deterministic replay tool smoke check to clean-room pipeline:
+  - `scripts/test_all.sh` invokes `replay-tool` before pytest.

@@ -31,7 +31,8 @@ It is a governed quantitative trading system.
 
 - Phases 0, 1A, 1B, 1C, and 1D are completed.
 - Deterministic runtime execution + replay validation are implemented.
-- Phase 2 (Replay Harness Architecture) is now in progress (initial replay harness slice implemented).
+- Phase 2 (Replay Harness Architecture) is implemented with deterministic replay tooling.
+- Phase 3 (Risk Engine Runtime Implementation) is now unblocked to begin.
 - Training, paper-trading adapter, and live exchange adapter remain future roadmap phases.
 
 ---
@@ -223,7 +224,7 @@ No structural change is valid unless logged and reviewed.
 
 ## 9. Runtime Replay CLI
 
-Phase 1D includes a deterministic replay CLI at:
+Phase 1D/2 include a deterministic replay CLI at:
 
 - `scripts/replay_cli.py`
 
@@ -231,6 +232,9 @@ Examples:
 
 - `python3 scripts/replay_cli.py replay-hour --run-id <uuid> --account-id <id> --hour-ts-utc 2026-01-01T00:00:00Z --host <host> --port <port> --dbname <db> --user <user> --password <password>`
 - `python3 scripts/replay_cli.py execute-hour --run-id <uuid> --account-id <id> --run-mode LIVE --hour-ts-utc 2026-01-01T00:00:00Z --dsn postgresql://...`
+- `python3 scripts/replay_cli.py replay-manifest --run-id <uuid> --account-id <id> --hour-ts-utc 2026-01-01T00:00:00Z --dsn postgresql://...`
+- `python3 scripts/replay_cli.py replay-window --account-id <id> --run-mode LIVE --start-hour-ts-utc 2026-01-01T00:00:00Z --end-hour-ts-utc 2026-01-07T00:00:00Z --dsn postgresql://...`
+- `python3 scripts/replay_cli.py replay-tool --run-mode LIVE --start-hour-ts-utc 2026-01-01T00:00:00Z --end-hour-ts-utc 2026-01-07T00:00:00Z --dsn postgresql://...`
 
 ---
 
