@@ -132,6 +132,7 @@ From `governance/test_logs/phase_1d_validation.log`:
 - runtime_risk_gate_logging_gap=0
 - cluster_cap_violation=0
 - cluster_cap_logging_gap=0
+- quantity_overflow_violation=0
 - deterministic_replay_parity_mismatch_pairs=0
 
 ## 6) Automated Test Execution and Coverage
@@ -146,7 +147,7 @@ pytest
 
 ### Result
 
-- `85 passed`
+- `86 passed`
 - Coverage safety target for `execution/*` passed at `100.00%`
 - Total coverage: `100.00%`
 
@@ -208,3 +209,13 @@ The following blocking failures were found during this review cycle and fixed de
 - No new phases added.
 - No acceptance criteria changed.
 - No contract expansion performed.
+
+## 11) Phase 1D Closure Addendum (2026-03-01 UTC)
+
+- Added deterministic replay CLI entrypoint:
+  - `scripts/replay_cli.py` (`execute-hour`, `replay-hour`).
+- Fixed potential duplicate `risk_event_id` collisions when repeated asset-level violations occur in a single run-hour:
+  - Runtime plan now de-duplicates semantically identical risk events per run-hour before insert.
+- Added explicit quantity overflow validation gate in:
+  - `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
+  - Check name: `quantity_overflow_violation`

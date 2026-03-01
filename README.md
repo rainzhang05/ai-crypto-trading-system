@@ -27,6 +27,13 @@ The architecture is designed from inception to support:
 This is not an experimental trading bot.  
 It is a governed quantitative trading system.
 
+### Current Repository State (2026-03-01 UTC)
+
+- Phases 0, 1A, 1B, 1C, and 1D are completed.
+- Deterministic runtime execution + replay validation are implemented.
+- Phase 2 (Replay Harness Architecture) is ready to start.
+- Training, paper-trading adapter, and live exchange adapter remain future roadmap phases.
+
 ---
 
 ## 2. Trading Constraints
@@ -168,7 +175,7 @@ Backtest logic must match live trading logic exactly.
 
 ---
 
-# 7. Infrastructure (Google Cloud Platform)
+## 7. Infrastructure (Google Cloud Platform)
 
 Cloud Provider: **Google Cloud Platform (GCP)**
 
@@ -201,23 +208,37 @@ Governance files are located in: **/governance**
 
 Includes:
 
-- PROJECT_GOVERNANCE.md
-- ARCHITECT_DECISIONS.md
-- MODEL_ASSUMPTIONS.md
-- RISK_RULES.md
-- ARCHITECT_PROMPT.md
-- IMPLEMENTATION_PROMPT.md
-- AUDITOR_PROMPT.md
+- governance/specs/PROJECT_GOVERNANCE.md
+- governance/specs/ARCHITECT_DECISIONS.md
+- governance/specs/MODEL_ASSUMPTIONS.md
+- governance/specs/RISK_RULES.md
+- governance/prompts/ARCHITECT_PROMPT.md
+- governance/prompts/IMPLEMENTATION_PROMPT.md
+- governance/prompts/AUDITOR_PROMPT.md
+- governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql
 
 No structural change is valid unless logged and reviewed.
 
 ---
 
-## 9. Tri-Agent Development Method
+## 9. Runtime Replay CLI
+
+Phase 1D includes a deterministic replay CLI at:
+
+- `scripts/replay_cli.py`
+
+Examples:
+
+- `python3 scripts/replay_cli.py replay-hour --run-id <uuid> --account-id <id> --hour-ts-utc 2026-01-01T00:00:00Z --host <host> --port <port> --dbname <db> --user <user> --password <password>`
+- `python3 scripts/replay_cli.py execute-hour --run-id <uuid> --account-id <id> --run-mode LIVE --hour-ts-utc 2026-01-01T00:00:00Z --dsn postgresql://...`
+
+---
+
+## 10. Tri-Agent Development Method
 
 This project uses a structured three-agent development framework.
 
-### 9.1 Architect Agent
+### 10.1 Architect Agent
 
 Role:
 
@@ -234,7 +255,7 @@ Does not write large production code.
 
 ---
 
-### 9.2 Implementation Agent
+### 10.2 Implementation Agent
 
 Role:
 
@@ -250,7 +271,7 @@ Does not modify architecture.
 
 ---
 
-### 9.3 Auditor Agent
+### 10.3 Auditor Agent
 
 Role:
 
@@ -268,7 +289,7 @@ Assumes bugs exist until proven safe.
 
 ---
 
-## 10. Development Cycle
+## 11. Development Cycle
 
 Every module follows this sequence:
 
@@ -284,7 +305,7 @@ Role mixing is prohibited.
 
 ---
 
-## 11. Version Control Rules
+## 12. Version Control Rules
 
 - All changes committed via Git
 - Commit messages must describe financial impact
@@ -293,7 +314,7 @@ Role mixing is prohibited.
 
 ---
 
-## 12. Production Readiness Requirements
+## 13. Production Readiness Requirements
 
 Before live trading:
 
@@ -308,7 +329,7 @@ Live deployment begins with minimal capital allocation.
 
 ---
 
-## 13. Priority Order
+## 14. Priority Order
 
 When conflicts arise:
 

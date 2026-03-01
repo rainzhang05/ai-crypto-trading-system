@@ -27,6 +27,7 @@ This directory is organized by artifact type to keep deterministic governance as
 
 - Full deterministic test command: `make test`
 - Test harness script: `scripts/test_all.sh`
+- Replay CLI: `scripts/replay_cli.py`
 - Validation SQL paths consumed by harness/tests:
   - `governance/validations/PHASE_1C_VALIDATION.sql`
   - `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`

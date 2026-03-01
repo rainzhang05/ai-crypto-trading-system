@@ -24,6 +24,7 @@
   - `tests/integration/test_validation_sql.py`
 - Determinism/replay parity:
   - `execution.replay_engine.replay_hour(...)` assertions in integration + unit tests
+  - Replay CLI entrypoint present: `scripts/replay_cli.py` (`execute-hour`, `replay-hour`)
   - Governance parity gates in `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
 - Governance SQL validations:
   - `governance/validations/PHASE_1C_VALIDATION.sql`
@@ -34,6 +35,7 @@
 - Gate A: Clean-room DB bootstrap completes with no SQL errors.
 - Gate B: `governance/validations/PHASE_1C_VALIDATION.sql` returns zero violations for all checks.
 - Gate C: `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql` returns zero violations for all checks.
+  - Includes explicit quantity overflow guard: `quantity_overflow_violation`.
 - Gate D: Schema equivalence check succeeds (`live_schema.sql` equals `schema_bootstrap.sql`; identical SHA-256).
 - Gate E: Pytest suite passes completely.
 - Gate F: Coverage across `execution/*` is 100% line coverage.

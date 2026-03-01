@@ -260,7 +260,26 @@ WHERE o.status = 'REJECTED'
         AND e.reason_code = 'CLUSTER_CAP_EXCEEDED'
   );
 
--- 10) Deterministic replay parity mismatch pairs must be zero.
+-- 10) Quantity overflow/precision guard across execution quantity surfaces.
+WITH quantity_surface AS (
+    SELECT requested_qty AS qty FROM order_request
+    UNION ALL
+    SELECT fill_qty AS qty FROM order_fill
+    UNION ALL
+    SELECT open_qty AS qty FROM position_lot
+    UNION ALL
+    SELECT remaining_qty AS qty FROM position_lot
+    UNION ALL
+    SELECT quantity AS qty FROM executed_trade
+)
+SELECT
+    'quantity_overflow_violation' AS check_name,
+    COUNT(*) AS violations
+FROM quantity_surface
+WHERE abs(qty) >= 100000000000000000000::numeric
+   OR qty <> round(qty, 18);
+
+-- 11) Deterministic replay parity mismatch pairs must be zero.
 WITH parity_pairs AS (
     SELECT
         a.run_id AS run_id_a,

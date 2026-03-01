@@ -27,9 +27,9 @@ Architectural integrity and financial safety override performance or experimenta
 
 Authoritative governance rules are defined in:
 
-- `governance/specs/PROJECT_GOVERNANCE.md`  [oai_citation:0‡PROJECT_GOVERNANCE.md](sediment://file_000000007ee0720cbdcca0f896a61ed4)
-- `governance/specs/RISK_RULES.md`  [oai_citation:1‡RISK_RULES.md](sediment://file_000000002710720c96f664809973f01c)
-- `governance/specs/SCHEMA_DDL_MASTER.md`  [oai_citation:2‡SCHEMA_DDL_MASTER.md](sediment://file_000000004a18720cbd63ca60fabdcfe2)
+- `governance/specs/PROJECT_GOVERNANCE.md`
+- `governance/specs/RISK_RULES.md`
+- `governance/specs/SCHEMA_DDL_MASTER.md`
 
 These documents define non-negotiable constraints.
 
@@ -69,7 +69,12 @@ All runtime state must be reconstructable from database records.
 Location:
 backend/db/
 
-This contains ORM model definitions that map to the authoritative schema contract.
+This contains SQLAlchemy model definitions for the core database domain.
+
+Important:
+- The authoritative schema contract is `schema_bootstrap.sql` and `governance/specs/SCHEMA_DDL_MASTER.md`.
+- Phase 1D runtime logic is SQL-first (deterministic query surfaces in `execution/`).
+- ORM classes are helpful references for application code, but schema governance must always follow the canonical SQL contract.
 
 ## 4.1 Core Files
 
@@ -99,7 +104,7 @@ These must remain structurally aligned with:
 - `schema_bootstrap.sql`
 - `governance/specs/SCHEMA_DDL_MASTER.md`
 
-No ORM drift is allowed.
+Schema drift in canonical SQL is not allowed.
 
 ---
 
@@ -124,6 +129,9 @@ This is the deterministic runtime decision engine.
 - `replay_engine.py`  
   Reconstructs execution flow from database history.
 
+- `scripts/replay_cli.py`  
+  CLI entrypoint for deterministic `execute-hour` and `replay-hour` operations.
+
 - `risk_runtime.py`  
   Enforces runtime drawdown and capital controls.
 
@@ -132,9 +140,9 @@ This is the deterministic runtime decision engine.
 
 This layer must strictly respect:
 
-- Risk rules  [oai_citation:3‡RISK_RULES.md](sediment://file_000000002710720c96f664809973f01c)
-- Governance constraints  [oai_citation:4‡PROJECT_GOVERNANCE.md](sediment://file_000000007ee0720cbdcca0f896a61ed4)
-- Schema contract  [oai_citation:5‡SCHEMA_DDL_MASTER.md](sediment://file_000000004a18720cbd63ca60fabdcfe2)
+- Risk rules (`governance/specs/RISK_RULES.md`)
+- Governance constraints (`governance/specs/PROJECT_GOVERNANCE.md`)
+- Schema contract (`governance/specs/SCHEMA_DDL_MASTER.md`)
 
 No logic may bypass database constraints.
 
@@ -300,6 +308,7 @@ Completed:
 - Test coverage
 
 The system currently operates as a deterministic trading core.
+Phase 2 is ready to start per `governance/specs/PROJECT_ROADMAP.md`.
 
 Future phases (per roadmap) will extend:
 

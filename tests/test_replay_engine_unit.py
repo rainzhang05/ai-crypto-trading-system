@@ -301,6 +301,22 @@ def test_plan_runtime_artifacts_cost_gate_logs_risk_event() -> None:
     assert any(event.reason_code == "ENTER_COST_GATE_FAILED" for event in planned.risk_events)
 
 
+def test_plan_runtime_artifacts_deduplicates_identical_risk_events() -> None:
+    db = _FakeDB()
+    db.rows["risk_hourly_state"][0]["halt_new_entries"] = True
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+
+    # Simulate two deterministic predictions producing the same gate violation.
+    context = replace(context, predictions=(context.predictions[0], context.predictions[0]))
+    planned = _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+
+    assert len(planned.trade_signals) == 2
+    assert len(planned.order_requests) == 0
+    assert len(planned.risk_events) == 1
+    assert planned.risk_events[0].reason_code == "HALT_NEW_ENTRIES_ACTIVE"
+
+
 def test_cluster_state_hash_helper_missing_membership_or_cluster_state_aborts() -> None:
     db = _FakeDB()
     hour = db.rows["run_context"][0]["origin_hour_ts_utc"]

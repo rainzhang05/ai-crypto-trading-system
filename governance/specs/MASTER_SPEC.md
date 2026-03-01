@@ -29,7 +29,8 @@ Current Build State (as of 2026-03-01 UTC):
 - Phase 1B completed.
 - Phase 1C completed (including Revision C repair + trigger drift correction).
 - Deterministic core schema is now aligned with walk-forward lineage gates, activation binding, and replay-critical hash hardening.
-- Phase 1D completed (deterministic execution runtime, append-only writer enforcement, activation/risk runtime gates, replay harness integration, and validation closure).
+- Phase 1D completed (deterministic execution runtime, append-only writer enforcement, activation/risk runtime gates, replay harness integration, replay CLI availability, and validation closure).
+- Phase 2 is ready to start.
 
 ---
 

@@ -186,6 +186,7 @@ def _plan_runtime_artifacts(
     trade_signals: list[TradeSignalRow] = []
     order_requests: list[OrderRequestRow] = []
     risk_events: list[RiskEventRow] = []
+    emitted_risk_events: set[tuple[str, str, str, str]] = set()
 
     for prediction in context.predictions:
         regime = context.find_regime(prediction.asset_id, prediction.model_version_id)
@@ -277,6 +278,17 @@ def _plan_runtime_artifacts(
                 order_requests.append(order)
         else:
             for violation in violations:
+                # De-duplicate semantically identical run-hour violations so
+                # repeated asset-level blocks do not collide on deterministic IDs.
+                event_key = (
+                    violation.event_type,
+                    violation.severity,
+                    violation.reason_code,
+                    violation.detail,
+                )
+                if event_key in emitted_risk_events:
+                    continue
+                emitted_risk_events.add(event_key)
                 risk_events.append(
                     writer.build_risk_event_row(
                         context=context,
