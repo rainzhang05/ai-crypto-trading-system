@@ -5,7 +5,7 @@
 
 ## 1. Overview
 
-The AI Crypto Trading System is a production-grade, fully quantitative cryptocurrency trading engine designed to operate on Kraken Spot markets.
+The Quantitative Crypto Trading System is a production-grade, fully quantitative cryptocurrency trading engine designed to operate on Kraken Spot markets.
 
 This system:
 
