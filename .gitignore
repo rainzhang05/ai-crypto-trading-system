@@ -208,3 +208,6 @@ __marimo__/
 
 # IntelliJ IDEA
 .idea
+
+# Virtual environment created by venv module
+.venv-test
