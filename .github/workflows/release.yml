@@ -34,10 +34,10 @@ jobs:
             README.md \
             schema_bootstrap.sql \
             scripts/test_all.sh \
-            governance/specs \
-            governance/validations \
-            governance/reports \
-            governance/test_logs
+            docs/specs \
+            docs/validations \
+            docs/reports \
+            docs/test_logs
           echo "bundle_path=${BUNDLE_NAME}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload release evidence artifact

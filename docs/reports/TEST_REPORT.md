@@ -1,8 +1,8 @@
 # Global Codespace Test Report (Phase 0 -> 1A -> 1B -> 1C -> 1D) [Historical]
 
 Current Phase 2 status and closure evidence are documented in:
-- `governance/reports/PHASE_2_TEST_REPORT.md`
-- `governance/phases/phase_2_replay_harness/PHASE_2_COMPLETION_REPORT.md`
+- `docs/reports/PHASE_2_TEST_REPORT.md`
+- `docs/phases/phase_2_replay_harness/PHASE_2_COMPLETION_REPORT.md`
 
 ## Final Decision
 
@@ -17,19 +17,19 @@ All required gates for this review run passed in a clean-room ephemeral DB run, 
 - Canonical schema bootstrap:
   - `schema_bootstrap.sql`
 - Authoritative schema/governance specs:
-  - `governance/specs/SCHEMA_DDL_MASTER.md`
-  - `governance/specs/MASTER_SPEC.md`
-  - `governance/specs/PROJECT_ROADMAP.md`
-  - `governance/specs/PROJECT_GOVERNANCE.md`
-  - `governance/specs/ARCHITECT_DECISIONS.md`
-  - `governance/specs/RISK_RULES.md`
-  - `governance/specs/MODEL_ASSUMPTIONS.md`
+  - `docs/specs/SCHEMA_DDL_MASTER.md`
+  - `docs/specs/MASTER_SPEC.md`
+  - `docs/specs/PROJECT_ROADMAP.md`
+  - `docs/specs/PROJECT_GOVERNANCE.md`
+  - `docs/specs/ARCHITECT_DECISIONS.md`
+  - `docs/specs/RISK_RULES.md`
+  - `docs/specs/MODEL_ASSUMPTIONS.md`
 - Phase 1B/1C migration artifacts:
-  - `governance/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md`
-  - `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_A_SCHEMA_MIGRATION.md`
-  - `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_B_SCHEMA_MIGRATION.md`
-  - `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
-  - `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
+  - `docs/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md`
+  - `docs/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_A_SCHEMA_MIGRATION.md`
+  - `docs/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_B_SCHEMA_MIGRATION.md`
+  - `docs/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
+  - `docs/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
 
 ### Canonical schema bootstrap location
 
@@ -46,19 +46,19 @@ All required gates for this review run passed in a clean-room ephemeral DB run, 
 
 ### Governance logs/blueprints present
 
-- `governance/phases/phase_0_data_layer_foundation/IMPLEMENTATION_LOG_PHASE_0.md`
-- `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1A.md`
-- `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1B.md`
-- `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1C.md`
-- `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1D.md`
-- `governance/repairs/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
-- `governance/repairs/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
+- `docs/phases/phase_0_data_layer_foundation/IMPLEMENTATION_LOG_PHASE_0.md`
+- `docs/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1A.md`
+- `docs/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1B.md`
+- `docs/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1C.md`
+- `docs/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1D.md`
+- `docs/repairs/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
+- `docs/repairs/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
 
 ## 2) Governance Artifact Completeness Check
 
-- `governance/repairs/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`: **present**.
+- `docs/repairs/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`: **present**.
 - Matched against phase artifact copy (`cmp` exit 0): **match**.
-- `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`: **present**.
+- `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`: **present**.
 - Required phase implementation logs (0/1A/1B/1C/1D): **present**.
 
 ## 3) Clean-Room Rebuild Proof
@@ -82,18 +82,18 @@ docker exec -i crypto-timescale-test psql -U postgres -d crypto_db_test -v ON_ER
 ### Log evidence
 
 - Container/bootstrap logs:
-  - `governance/test_logs/container_start.log`
-  - `governance/test_logs/db_create.log`
-  - `governance/test_logs/schema_bootstrap_apply.log`
+  - `docs/test_logs/container_start.log`
+  - `docs/test_logs/db_create.log`
+  - `docs/test_logs/schema_bootstrap_apply.log`
 
 ## 4) Canonical Schema Equivalence Check
 
 ### Commands
 
 ```bash
-docker exec crypto-timescale-test pg_dump -U postgres -d crypto_db_test --schema-only --no-owner --no-privileges > governance/test_logs/live_schema.sql
-shasum -a 256 governance/test_logs/live_schema.sql schema_bootstrap.sql
-cmp -s governance/test_logs/live_schema.sql schema_bootstrap.sql
+docker exec crypto-timescale-test pg_dump -U postgres -d crypto_db_test --schema-only --no-owner --no-privileges > docs/test_logs/live_schema.sql
+shasum -a 256 docs/test_logs/live_schema.sql schema_bootstrap.sql
+cmp -s docs/test_logs/live_schema.sql schema_bootstrap.sql
 ```
 
 ### Result
@@ -101,13 +101,13 @@ cmp -s governance/test_logs/live_schema.sql schema_bootstrap.sql
 - SHA-256 (live schema): `875eec6c382fc93b19c4a97a3e0442103acdb9487df6b1ca1511f79aef18fea2`
 - SHA-256 (canonical): `875eec6c382fc93b19c4a97a3e0442103acdb9487df6b1ca1511f79aef18fea2`
 - Exact byte-compare (`cmp`): **match**
-- Evidence: `governance/test_logs/schema_sha256.log`, `governance/test_logs/live_schema.sql`
+- Evidence: `docs/test_logs/schema_sha256.log`, `docs/test_logs/live_schema.sql`
 
 ## 5) Validation Gate Outputs (All Zero)
 
 ### Phase 1C gate output
 
-From `governance/test_logs/phase_1c_validation.log`:
+From `docs/test_logs/phase_1c_validation.log`:
 
 - triggers_with_v2_refs_action_statement=0
 - functions_with_v2_refs_blueprint_scope=0
@@ -123,7 +123,7 @@ From `governance/test_logs/phase_1c_validation.log`:
 
 ### Phase 1D gate output
 
-From `governance/test_logs/phase_1d_validation.log`:
+From `docs/test_logs/phase_1d_validation.log`:
 
 - append_only_trigger_gaps=0
 - replay_sample_hour_shortfall=0
@@ -164,7 +164,7 @@ Per-module coverage (`execution/*`):
 - `execution/risk_runtime.py`: 100%
 - `execution/runtime_writer.py`: 100%
 
-Evidence: `governance/test_logs/pytest.log`
+Evidence: `docs/test_logs/pytest.log`
 
 ## 7) Failures Encountered and Fixes Applied
 
@@ -190,13 +190,13 @@ The following blocking failures were found during this review cycle and fixed de
 ## 8) Governance Layout Cleanup
 
 - Governance root was reorganized into typed subfolders for maintainability:
-  - `governance/specs/`
-  - `governance/validations/`
-  - `governance/repairs/`
-  - `governance/reports/`
-  - `governance/prompts/`
+  - `docs/specs/`
+  - `docs/validations/`
+  - `docs/repairs/`
+  - `docs/reports/`
+  - `docs/prompts/`
 - Updated all script/test/document references to new paths.
-- Added `governance/README.md` as a directory map and usage guide.
+- Added `docs/README.md` as a directory map and usage guide.
 
 ## 9) Determinism/Replay Evidence
 
@@ -221,5 +221,5 @@ The following blocking failures were found during this review cycle and fixed de
 - Fixed potential duplicate `risk_event_id` collisions when repeated asset-level violations occur in a single run-hour:
   - Runtime plan now de-duplicates semantically identical risk events per run-hour before insert.
 - Added explicit quantity overflow validation gate in:
-  - `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
+  - `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
   - Check name: `quantity_overflow_violation`

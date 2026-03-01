@@ -2,8 +2,8 @@
 
 ## Scope
 Phase 0 data-layer foundation baseline as referenced by:
-- `governance/specs/PROJECT_ROADMAP.md` (Phase 0 marked completed)
-- `governance/specs/SCHEMA_DDL_MASTER.md` (core invariant contract)
+- `docs/specs/PROJECT_ROADMAP.md` (Phase 0 marked completed)
+- `docs/specs/SCHEMA_DDL_MASTER.md` (core invariant contract)
 
 ## Authoritative Source of Applied State
 - `schema_bootstrap.sql` (canonical executable snapshot regenerated from live schema on 2026-03-01 UTC per `PHASE_1C_ARTIFACT_STATUS.md`)

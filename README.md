@@ -212,20 +212,20 @@ Workflow definitions live in `.github/workflows/`:
 
 This system operates under strict governance.
 
-Governance files are located in: **/governance**
+Governance files are located in: **/docs**
 
 
 Includes:
 
-- governance/specs/PROJECT_GOVERNANCE.md
-- governance/specs/ARCHITECT_DECISIONS.md
-- governance/specs/MODEL_ASSUMPTIONS.md
-- governance/specs/RISK_RULES.md
-- governance/prompts/ARCHITECT_PROMPT.md
-- governance/prompts/IMPLEMENTATION_PROMPT.md
-- governance/prompts/AUDITOR_PROMPT.md
-- governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql
-- governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql
+- docs/specs/PROJECT_GOVERNANCE.md
+- docs/specs/ARCHITECT_DECISIONS.md
+- docs/specs/MODEL_ASSUMPTIONS.md
+- docs/specs/RISK_RULES.md
+- docs/prompts/ARCHITECT_PROMPT.md
+- docs/prompts/IMPLEMENTATION_PROMPT.md
+- docs/prompts/AUDITOR_PROMPT.md
+- docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql
+- docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql
 
 No structural change is valid unless logged and reviewed.
 

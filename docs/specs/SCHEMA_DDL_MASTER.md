@@ -1345,8 +1345,8 @@ The live schema includes the following Phase 1C Revision C repairs and hardening
 
 For exact executable DDL, use:
 - `/schema_bootstrap.sql` (current-state bootstrap)
-- `/governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql` (historical repair blueprint)
-- `/governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql` (minimal drift-correction loop)
+- `/docs/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql` (historical repair blueprint)
+- `/docs/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql` (minimal drift-correction loop)
 
 ---
 

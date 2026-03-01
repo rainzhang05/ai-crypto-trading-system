@@ -5,7 +5,7 @@ This repository uses three workflows:
 1. `ci.yml`
 - Triggers on pull requests, branch pushes, manual runs, and nightly schedule.
 - Runs Python preflight checks (`compileall`, `pytest`) and then the authoritative clean-room gate via `scripts/test_all.sh`.
-- Uploads `governance/test_logs` artifacts for audit evidence.
+- Uploads `docs/test_logs` artifacts for audit evidence.
 
 2. `release.yml`
 - Triggers on tags matching `v*`.

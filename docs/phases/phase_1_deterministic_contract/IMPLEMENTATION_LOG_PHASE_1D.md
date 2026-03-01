@@ -15,7 +15,7 @@ Phase 1D deterministic runtime execution layer implementation and validation.
 - `scripts/replay_cli.py`
 
 ## Validation Artifact Added
-- `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
+- `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
 
 ## Precondition Gate (Entry)
 Verified prior to runtime implementation:
@@ -30,5 +30,5 @@ Verified prior to runtime implementation:
 - Phase 1D runtime code and validation SQL are present.
 - Replay CLI entrypoint is available for deterministic execute/replay operations.
 - QA expansion and clean-room rebuild evidence are tracked in:
-  - `governance/reports/TEST_PLAN.md`
-  - `governance/reports/TEST_REPORT.md`
+  - `docs/reports/TEST_PLAN.md`
+  - `docs/reports/TEST_REPORT.md`

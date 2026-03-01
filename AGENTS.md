@@ -25,9 +25,9 @@ Architectural integrity and financial safety override performance or experimenta
 
 Authoritative governance rules are defined in:
 
-- `governance/specs/PROJECT_GOVERNANCE.md`
-- `governance/specs/RISK_RULES.md`
-- `governance/specs/SCHEMA_DDL_MASTER.md`
+- `docs/specs/PROJECT_GOVERNANCE.md`
+- `docs/specs/RISK_RULES.md`
+- `docs/specs/SCHEMA_DDL_MASTER.md`
 
 These documents define non-negotiable constraints.
 
@@ -70,7 +70,7 @@ backend/db/
 This contains SQLAlchemy model definitions for the core database domain.
 
 Important:
-- The authoritative schema contract is `schema_bootstrap.sql` and `governance/specs/SCHEMA_DDL_MASTER.md`.
+- The authoritative schema contract is `schema_bootstrap.sql` and `docs/specs/SCHEMA_DDL_MASTER.md`.
 - Phase 1D/2 runtime + replay logic is SQL-first (deterministic query surfaces in `execution/`).
 - ORM classes are helpful references for application code, but schema governance must always follow the canonical SQL contract.
 
@@ -100,7 +100,7 @@ Examples:
 These must remain structurally aligned with:
 
 - `schema_bootstrap.sql`
-- `governance/specs/SCHEMA_DDL_MASTER.md`
+- `docs/specs/SCHEMA_DDL_MASTER.md`
 
 Schema drift in canonical SQL is not allowed.
 
@@ -141,9 +141,9 @@ This is the deterministic runtime decision engine.
 
 This layer must strictly respect:
 
-- Risk rules (`governance/specs/RISK_RULES.md`)
-- Governance constraints (`governance/specs/PROJECT_GOVERNANCE.md`)
-- Schema contract (`governance/specs/SCHEMA_DDL_MASTER.md`)
+- Risk rules (`docs/specs/RISK_RULES.md`)
+- Governance constraints (`docs/specs/PROJECT_GOVERNANCE.md`)
+- Schema contract (`docs/specs/SCHEMA_DDL_MASTER.md`)
 
 No logic may bypass database constraints.
 
@@ -152,7 +152,7 @@ No logic may bypass database constraints.
 # 6. GOVERNANCE LAYER
 
 Location:
-governance/
+docs/
 
 This is the architectural control center.
 
@@ -250,7 +250,7 @@ Authoritative schema:
 schema_bootstrap.sql
 
 Source-of-truth spec:
-governance/specs/SCHEMA_DDL_MASTER.md
+docs/specs/SCHEMA_DDL_MASTER.md
 
 The schema enforces:
 
@@ -311,7 +311,7 @@ Completed:
 - Test coverage
 
 The system currently operates as a deterministic trading core.
-Phase 2 is closed; Phase 3 is ready to begin per `governance/specs/PROJECT_ROADMAP.md`.
+Phase 2 is closed; Phase 3 is ready to begin per `docs/specs/PROJECT_ROADMAP.md`.
 
 Future phases (per roadmap) will extend:
 

@@ -79,7 +79,7 @@ Artifact:
 ### Phase 1B — Schema Migration Blueprint (Architect) ✅ COMPLETED
 
 Deliverable:
-- governance/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md
+- docs/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md
 
 Output:
 - Ordered migration phases
@@ -356,11 +356,11 @@ Project Manager:
 
 All phase artifacts must reside under:
 
-/governance/phases/<phase_name>/
+/docs/phases/<phase_name>/
 
 Example:
 
-/governance/phases/phase_1_deterministic_contract/
+/docs/phases/phase_1_deterministic_contract/
     SCHEMA_MIGRATION_PHASE_1B.md
     PHASE_1C_REVISION_B_SCHEMA_MIGRATION.md
     PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql

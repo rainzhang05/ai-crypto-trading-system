@@ -152,7 +152,7 @@ Approval of Phase 1B — Deterministic Contract Migration.
 
 This decision formalizes the structural migration defined in:
 
-governance/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md
+docs/phases/phase_1_deterministic_contract/SCHEMA_MIGRATION_PHASE_1B.md
 
 The migration introduces:
 
@@ -324,10 +324,10 @@ Closure conditions satisfied:
 
 ### Artifacts
 
-- `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
-- `governance/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
-- `governance/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1C.md`
-- `governance/phases/phase_1_deterministic_contract/PHASE_1C_ARTIFACT_STATUS.md`
+- `docs/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`
+- `docs/phases/phase_1_deterministic_contract/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`
+- `docs/phases/phase_1_deterministic_contract/IMPLEMENTATION_LOG_PHASE_1C.md`
+- `docs/phases/phase_1_deterministic_contract/PHASE_1C_ARTIFACT_STATUS.md`
 
 ### Status
 
@@ -371,7 +371,7 @@ Delivered components:
    - explicit status contract: `REPLAY PARITY: TRUE/FALSE`
 
 7. Governance validation gate:
-   - `governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
+   - `docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
 
 8. Clean-room pipeline wiring:
    - `scripts/test_all.sh` executes Phase 2 validation SQL and replay-tool smoke check.

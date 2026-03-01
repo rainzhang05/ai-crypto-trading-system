@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="${ROOT_DIR}/governance/test_logs"
+LOG_DIR="${ROOT_DIR}/docs/test_logs"
 CONTAINER_NAME="crypto-timescale-test"
 DB_PORT="55432"
 DB_NAME="crypto_db_test"
@@ -84,7 +84,7 @@ docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ER
 
 echo "[test_all] Running Phase 1C validation gates..."
 docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
-  < "${ROOT_DIR}/governance/validations/PHASE_1C_VALIDATION.sql" \
+  < "${ROOT_DIR}/docs/validations/PHASE_1C_VALIDATION.sql" \
   | tee "${LOG_DIR}/phase_1c_validation.log"
 
 if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_1c_validation.log"; then
@@ -94,7 +94,7 @@ fi
 
 echo "[test_all] Running Phase 1D validation gates..."
 docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
-  < "${ROOT_DIR}/governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql" \
+  < "${ROOT_DIR}/docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql" \
   | tee "${LOG_DIR}/phase_1d_validation.log"
 
 if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_1d_validation.log"; then
@@ -104,7 +104,7 @@ fi
 
 echo "[test_all] Running Phase 2 validation gates..."
 docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
-  < "${ROOT_DIR}/governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql" \
+  < "${ROOT_DIR}/docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql" \
   | tee "${LOG_DIR}/phase_2_validation.log"
 
 if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_2_validation.log"; then
@@ -130,7 +130,7 @@ python -m pip install -r "${ROOT_DIR}/requirements-dev.txt" >> "${LOG_DIR}/pip_i
 
 echo "[test_all] Enabling runtime fixture inserts in ephemeral DB..."
 docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
-  < "${ROOT_DIR}/governance/validations/TEST_RUNTIME_INSERT_ENABLE.sql" \
+  < "${ROOT_DIR}/docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql" \
   | tee "${LOG_DIR}/test_runtime_insert_enable.log"
 
 if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/test_runtime_insert_enable.log"; then

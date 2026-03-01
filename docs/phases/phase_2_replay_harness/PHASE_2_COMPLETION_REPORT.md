@@ -32,7 +32,7 @@ Authoritative scope from roadmap:
 
 ## Governance and Validation Artifacts
 - Validation SQL:
-  - `governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
+  - `docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
 - Pipeline wiring:
   - `scripts/test_all.sh`
   - Includes Phase 2 validation SQL gate and replay-tool smoke check

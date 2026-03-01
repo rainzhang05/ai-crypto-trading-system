@@ -1,4 +1,4 @@
-# Governance Directory Layout
+# Docs Directory Layout
 
 This directory is organized by artifact type to keep deterministic governance assets easy to locate and maintain.
 
@@ -11,7 +11,7 @@ This directory is organized by artifact type to keep deterministic governance as
   - Executable SQL validation gates used by test/rebuild flows.
   - Includes `PHASE_1C_VALIDATION.sql`, `PHASE_1D_RUNTIME_VALIDATION.sql`, `TEST_RUNTIME_INSERT_ENABLE.sql`.
 - `repairs/`
-  - Revision repair SQL artifacts kept at governance root scope.
+  - Revision repair SQL artifacts kept at docs root scope.
   - Includes `PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`, `PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`.
 - `reports/`
   - QA planning and execution reports.
@@ -29,6 +29,6 @@ This directory is organized by artifact type to keep deterministic governance as
 - Test harness script: `scripts/test_all.sh`
 - Replay CLI: `scripts/replay_cli.py`
 - Validation SQL paths consumed by harness/tests:
-  - `governance/validations/PHASE_1C_VALIDATION.sql`
-  - `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
-  - `governance/validations/TEST_RUNTIME_INSERT_ENABLE.sql`
+  - `docs/validations/PHASE_1C_VALIDATION.sql`
+  - `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
+  - `docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql`

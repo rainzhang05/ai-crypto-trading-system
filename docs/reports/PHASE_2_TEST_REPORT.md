@@ -30,12 +30,12 @@ pytest -q
     - `REPLAY PARITY: TRUE`
 
 ## Evidence Paths
-- `governance/test_logs/phase_1c_validation.log`
-- `governance/test_logs/phase_1d_validation.log`
-- `governance/test_logs/phase_2_validation.log`
-- `governance/test_logs/phase_2_replay_tool_smoke.log`
-- `governance/test_logs/schema_sha256.log`
-- `governance/test_logs/pytest.log`
+- `docs/test_logs/phase_1c_validation.log`
+- `docs/test_logs/phase_1d_validation.log`
+- `docs/test_logs/phase_2_validation.log`
+- `docs/test_logs/phase_2_replay_tool_smoke.log`
+- `docs/test_logs/schema_sha256.log`
+- `docs/test_logs/pytest.log`
 
 ## Notes
 - Phase 2 changes are additive to replay/audit infrastructure.

@@ -29,19 +29,19 @@
   - `execution.replay_harness.replay_manifest_parity(...)` + `replay_manifest_window_parity(...)` assertions
   - `execution.replay_harness.replay_manifest_tool_parity(...)` assertions
   - Replay CLI entrypoint present: `scripts/replay_cli.py` (`execute-hour`, `replay-hour`, `replay-manifest`, `replay-window`, `replay-tool`)
-  - Governance parity gates in `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
+  - Governance parity gates in `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
 - Governance SQL validations:
-  - `governance/validations/PHASE_1C_VALIDATION.sql`
-  - `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
-  - `governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
+  - `docs/validations/PHASE_1C_VALIDATION.sql`
+  - `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
+  - `docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
 
 ## Pass/Fail Gates
 
 - Gate A: Clean-room DB bootstrap completes with no SQL errors.
-- Gate B: `governance/validations/PHASE_1C_VALIDATION.sql` returns zero violations for all checks.
-- Gate C: `governance/validations/PHASE_1D_RUNTIME_VALIDATION.sql` returns zero violations for all checks.
+- Gate B: `docs/validations/PHASE_1C_VALIDATION.sql` returns zero violations for all checks.
+- Gate C: `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql` returns zero violations for all checks.
   - Includes explicit quantity overflow guard: `quantity_overflow_violation`.
-- Gate D: `governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql` returns zero violations for all checks.
+- Gate D: `docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql` returns zero violations for all checks.
 - Gate E: Schema equivalence check succeeds (`live_schema.sql` equals `schema_bootstrap.sql`; identical SHA-256).
 - Gate F: Pytest suite passes completely.
 - Gate G: Coverage across `execution/*` is 100% line coverage.
@@ -67,6 +67,6 @@ Equivalent direct command:
 3. Applies `schema_bootstrap.sql` with `psql -v ON_ERROR_STOP=1`.
 4. Runs Phase 1C + Phase 1D + Phase 2 validation SQL (must be all zero).
 5. Dumps schema and verifies canonical equivalence + SHA-256 match.
-6. Enables test-only insert path on ephemeral DB via `governance/validations/TEST_RUNTIME_INSERT_ENABLE.sql`.
+6. Enables test-only insert path on ephemeral DB via `docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql`.
 7. Runs Phase 2 replay-tool smoke check (`replay-tool`) on clean bootstrap state.
 8. Runs `pytest` with coverage threshold enforcement.

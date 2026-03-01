@@ -52,7 +52,7 @@ Phase 2 replay harness architecture initial implementation.
 
 ## Phase 2 Step 3 (Governance Validation + DB Integration)
 - Added Phase 2 governance validation gate:
-  - `governance/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
+  - `docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
   - Includes replay-manifest integrity checks and deterministic seed-collision parity checks.
 - Wired Phase 2 validation into clean-room pipeline:
   - `scripts/test_all.sh` now executes Phase 2 validation and fails on non-zero violations.
