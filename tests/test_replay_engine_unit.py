@@ -394,8 +394,44 @@ def test_plan_runtime_artifacts_deduplicates_identical_risk_events() -> None:
 
     assert len(planned.trade_signals) == 2
     assert len(planned.order_requests) == 0
-    assert sum(1 for event in planned.risk_events if event.reason_code == "HALT_NEW_ENTRIES_ACTIVE") == 1
+    assert (
+        sum(
+            1
+            for event in planned.risk_events
+            if event.reason_code == "HALT_NEW_ENTRIES_ACTIVE" and event.event_type != "DECISION_TRACE"
+        )
+        == 1
+    )
     assert sum(1 for event in planned.risk_events if event.event_type == "DECISION_TRACE") == 2
+
+
+def test_plan_runtime_artifacts_decision_trace_ids_unique_per_signal() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+
+    base_prediction = context.predictions[0]
+    alt_horizon_prediction = replace(base_prediction, horizon="H4")
+    context = replace(context, predictions=(base_prediction, alt_horizon_prediction))
+
+    planned = _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+    decision_traces = tuple(event for event in planned.risk_events if event.event_type == "DECISION_TRACE")
+
+    assert len(decision_traces) == 2
+    assert len({event.risk_event_id for event in decision_traces}) == 2
+    assert all(event.reason_code == "VOLATILITY_SIZED" for event in decision_traces)
+
+
+def test_plan_runtime_artifacts_decision_trace_uses_volatility_fallback_reason() -> None:
+    db = _FakeDB()
+    db.rows["feature_snapshot"] = []
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+
+    planned = _plan_runtime_artifacts(context, AppendOnlyRuntimeWriter(db))
+    decision_trace = next(event for event in planned.risk_events if event.event_type == "DECISION_TRACE")
+
+    assert decision_trace.reason_code == "VOLATILITY_FALLBACK_BASE"
 
 
 def test_cluster_state_hash_helper_missing_membership_or_cluster_state_aborts() -> None:

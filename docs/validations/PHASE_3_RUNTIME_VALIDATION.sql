@@ -70,7 +70,7 @@ LEFT JOIN trace_counts t
   ON t.run_id = s.run_id
  AND t.account_id = s.account_id
  AND t.hour_ts_utc = s.hour_ts_utc
-WHERE COALESCE(t.n_traces, 0) < s.n_signals;
+WHERE COALESCE(t.n_traces, 0) <> s.n_signals;
 
 -- 4) Severe-loss mode must produce recovery-mode trace reason codes.
 WITH severe_hours AS (

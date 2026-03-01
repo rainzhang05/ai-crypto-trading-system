@@ -17,4 +17,5 @@ Current authoritative implementation policy is defined in:
 
 Current directory state includes:
 - Historical closure artifacts for Phase 0-2.
-- Active kickoff artifacts for Phase 3 runtime implementation.
+- Phase 3 implementation logs (kickoff + completion).
+- Active phase artifacts should now target Phase 4 onward.

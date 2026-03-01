@@ -360,18 +360,25 @@ def _plan_runtime_artifacts(
                 )
 
         risk_state_eval = evaluate_risk_state_machine(context=context, risk_profile=risk_profile)
-        action_reason_code = (
-            severe_recovery_eval.reason_code
-            if severe_recovery_eval.reason_code != "NO_SEVERE_LOSS_RECOVERY"
-            else adaptive_action_eval.reason_code
-        )
+        if severe_recovery_eval.reason_code != "NO_SEVERE_LOSS_RECOVERY":
+            action_reason_code = severe_recovery_eval.reason_code
+        elif final_signal.action == "ENTER":
+            action_reason_code = sizing_eval.reason_code
+        else:
+            action_reason_code = adaptive_action_eval.reason_code
         risk_events.append(
             writer.build_risk_event_row(
                 context=context,
                 event_type="DECISION_TRACE",
                 severity="LOW",
                 reason_code=action_reason_code,
-                detail=f"Decision trace for asset_id={prediction.asset_id} action={final_signal.action}.",
+                detail=(
+                    "Decision trace for "
+                    f"asset_id={prediction.asset_id} "
+                    f"horizon={prediction.horizon} "
+                    f"model_version_id={prediction.model_version_id} "
+                    f"action={final_signal.action}."
+                ),
                 details={
                     "profile_version": context.risk_profile.profile_version,
                     "risk_state_mode": risk_state_eval.state,
@@ -389,6 +396,7 @@ def _plan_runtime_artifacts(
                     "volatility_scale": str(sizing_eval.volatility_scale),
                     "adjusted_fraction": str(sizing_eval.adjusted_fraction),
                     "derisk_fraction": str(context.risk_profile.derisk_fraction),
+                    "violation_reason_codes": [violation.reason_code for violation in violations],
                     "total_exposure_mode": context.risk_profile.total_exposure_mode,
                     "cluster_exposure_mode": context.risk_profile.cluster_exposure_mode,
                     "max_concurrent_positions": context.risk_profile.max_concurrent_positions,

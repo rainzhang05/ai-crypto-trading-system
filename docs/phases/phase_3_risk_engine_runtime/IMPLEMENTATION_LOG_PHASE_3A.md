@@ -1,5 +1,8 @@
 # IMPLEMENTATION_LOG_PHASE_3A
 
+> Status note: Phase 3 completion was finalized in `IMPLEMENTATION_LOG_PHASE_3B.md`.
+> The "remaining work" section below is retained as historical kickoff context only.
+
 ## Scope
 Phase 3 kickoff slice: Risk engine runtime foundations.
 

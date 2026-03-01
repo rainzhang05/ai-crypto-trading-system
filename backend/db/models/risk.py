@@ -16,6 +16,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Identity,
     Index,
     Integer,
     Numeric,
@@ -364,6 +365,10 @@ class RiskProfile(Base):
             "signal_persistence_required >= 1",
             name="ck_risk_profile_signal_persistence_min",
         ),
+        Index(
+            "idx_risk_profile_feature_id",
+            "volatility_feature_id",
+        ),
     )
 
     profile_version: Mapped[str] = mapped_column(Text, nullable=False)
@@ -412,9 +417,18 @@ class AccountRiskProfileAssignment(Base):
             "effective_to_utc IS NULL OR effective_to_utc > effective_from_utc",
             name="ck_account_risk_profile_assignment_window",
         ),
+        Index(
+            "idx_account_risk_profile_assignment_account_window",
+            "account_id",
+            desc("effective_from_utc"),
+        ),
     )
 
-    assignment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    assignment_id: Mapped[int] = mapped_column(
+        BigInteger,
+        Identity(always=True),
+        nullable=False,
+    )
     account_id: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     profile_version: Mapped[str] = mapped_column(Text, nullable=False)
     effective_from_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

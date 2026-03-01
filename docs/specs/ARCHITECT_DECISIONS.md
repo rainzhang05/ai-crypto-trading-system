@@ -456,8 +456,8 @@ Yes, strategy behavior may change and requires adaptive-horizon simulation in ba
 ### Approval
 
 Architect: Approved  
-Auditor: Pending runtime parity verification  
-Status: Approved
+Auditor: Runtime parity verification completed (Phase 3 validation gate passed)  
+Status: Approved and implemented
 
 ---
 
@@ -500,8 +500,8 @@ Historical Phase 0-2 artifacts remain valid as deterministic scaffolding and his
 ### Approval
 
 Architect: Approved  
-Auditor: Pending implementation-phase validation  
-Status: Approved
+Auditor: Implementation-phase validation completed (Phase 3 closure)  
+Status: Approved and implemented; Phase 4 authorized
 
 ---
 

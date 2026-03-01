@@ -1106,6 +1106,14 @@ CREATE TRIGGER trg_meta_learner_component_append_only
 BEFORE UPDATE OR DELETE ON meta_learner_component
 FOR EACH ROW EXECUTE FUNCTION fn_enforce_append_only();
 
+CREATE TRIGGER trg_risk_profile_append_only
+BEFORE UPDATE OR DELETE ON risk_profile
+FOR EACH ROW EXECUTE FUNCTION fn_enforce_append_only();
+
+CREATE TRIGGER trg_account_risk_profile_assignment_append_only
+BEFORE UPDATE OR DELETE ON account_risk_profile_assignment
+FOR EACH ROW EXECUTE FUNCTION fn_enforce_append_only();
+
 CREATE TRIGGER trg_trade_signal_append_only
 BEFORE UPDATE OR DELETE ON trade_signal
 FOR EACH ROW EXECUTE FUNCTION fn_enforce_append_only();
@@ -1182,6 +1190,9 @@ CREATE INDEX idx_risk_hourly_tier_hour_desc ON risk_hourly_state USING btree (dr
 CREATE INDEX idx_risk_hourly_halt_true_hour_desc ON risk_hourly_state USING btree (hour_ts_utc DESC)
     WHERE halt_new_entries = TRUE;
 CREATE INDEX idx_risk_hourly_source_run_id ON risk_hourly_state USING btree (source_run_id);
+CREATE INDEX idx_risk_profile_feature_id ON risk_profile USING btree (volatility_feature_id);
+CREATE INDEX idx_account_risk_profile_assignment_account_window
+    ON account_risk_profile_assignment USING btree (account_id, effective_from_utc DESC);
 
 CREATE INDEX idx_trade_signal_action_hour_desc ON trade_signal USING btree (action, hour_ts_utc DESC);
 CREATE INDEX idx_trade_signal_account_hour_desc ON trade_signal USING btree (account_id, hour_ts_utc DESC);
