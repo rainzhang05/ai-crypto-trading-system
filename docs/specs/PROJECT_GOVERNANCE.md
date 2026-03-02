@@ -8,6 +8,7 @@ This document defines non-negotiable governance rules for architecture, finance,
 Authoritative strategy behavior is defined in:
 
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+- `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 
 ---
 
@@ -96,6 +97,33 @@ Execution engine must:
 - enforce capital and exposure constraints using selected unit mode
 - log all order lifecycle events and reason codes
 - preserve deterministic behavior for replay
+
+---
+
+# 7A. OPERATOR INTERFACE AND EXCHANGE ONBOARDING GOVERNANCE
+
+The system must provide a governed user-facing control plane for safe operation.
+
+Required operator interface capabilities:
+
+- Governed settings updates for risk/strategy profiles.
+- Runtime status visibility (health, mode, active risk gates, kill switch).
+- Decision/prediction visibility with reason-code evidence.
+- Holdings and per-asset chart visibility.
+
+Interface constraints:
+
+- Frontend/operator tools must never bypass runtime risk gates or schema constraints.
+- Parameter bounds are enforced server-side; UI validation is advisory only.
+- Every settings change must be versioned, attributable, and replay-auditable.
+
+Kraken onboarding governance requirements:
+
+- Connection path must be user-guided and minimally complex.
+- API key scope checks must enforce minimum required permissions.
+- Withdrawal capability must be explicitly disallowed for trading keys.
+- Secrets must be handled through secure storage pathways and never logged in plaintext.
+- Live enablement requires explicit user confirmation after connectivity validation.
 
 ---
 

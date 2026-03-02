@@ -26,6 +26,7 @@ Capital Preservation > Determinism > Risk Enforcement > Backtest Integrity > Opt
 Authoritative strategy execution rules are defined in:
 
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+- `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 
 ---
 
@@ -45,8 +46,10 @@ Final system layers:
 10. Backtest Orchestrator
 11. Paper Trading Adapter
 12. Live Trading Adapter
-13. Monitoring & Alerting Layer
-14. Governance & Audit Layer
+13. Exchange Onboarding & Credential Gateway
+14. Operator Control Plane (Frontend + Control APIs)
+15. Monitoring & Alerting Layer
+16. Governance & Audit Layer
 
 ---
 
@@ -336,6 +339,20 @@ No risk bypass allowed.
 
 ---
 
+## PHASE 8A — KRAKEN ACCOUNT ONBOARDING & CREDENTIAL GATEWAY
+
+Implement:
+- Guided Kraken connection wizard flow
+- Required-scope API key validation checks
+- Enforced no-withdrawal key policy checks
+- Secure secret storage integration (no plaintext persistence/logging)
+- Connection smoke tests (balances, permissions, order endpoint reachability)
+- Paper-first onboarding default with explicit live enable confirmation
+
+The primary objective is the easiest safe path for users to connect their own Kraken account.
+
+---
+
 ## PHASE 9 — MONITORING & OBSERVABILITY
 
 Implement:
@@ -346,6 +363,23 @@ Implement:
 - Slippage anomaly detection
 - API health monitoring
 - Capital exposure dashboards
+
+---
+
+## PHASE 9A — OPERATOR CONTROL PLANE (FRONTEND)
+
+Implement:
+- Governed settings editor for risk/strategy profiles
+- Runtime status dashboard (mode, health, risk gates, kill-switch state)
+- Decision and prediction timeline views with reason-code evidence
+- Holdings/lot inventory view and per-asset performance summary
+- Asset chart views (price, exposure, and action overlays)
+- Replay/audit links for every operator-visible decision
+
+Constraints:
+- No direct database mutation from frontend.
+- All write actions route through governed APIs with versioned audit evidence.
+- No UI path may bypass runtime risk constraints.
 
 ---
 
@@ -469,6 +503,8 @@ Project is considered complete when:
 - Live trading runs without invariant violation
 - Adaptive horizon decisions are replay-reconstructable from stored state
 - Monitoring detects anomalies
+- Users can safely connect Kraken accounts through a guided onboarding path with validated permissions and secure secret handling
+- Operator frontend allows governed settings changes, runtime observability, predictions/decisions inspection, and holdings/chart visibility without risk bypass
 - Audit reconstruction reproducible from hash chain
 - Capital preservation rules cannot be bypassed
 - Every phase implementation is incomplete until coverage closure is achieved for all executable artifacts introduced or modified by that phase.

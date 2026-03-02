@@ -23,6 +23,7 @@ This specification is binding with:
 - `docs/specs/PROJECT_GOVERNANCE.md`
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/SCHEMA_DDL_MASTER.md`
+- `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 
 ---
 
@@ -113,6 +114,32 @@ Drawdown/risk tiers must be configurable profiles with safe defaults.
 - Users may tune profiles within safety bounds defined by governance.
 
 All profile changes must be versioned and logged.
+
+## 4.4 Required Operator Frontend Surfaces
+
+The product must provide a user-facing control plane with at least:
+
+- governed settings editor for profile parameters
+- current runtime status view (mode, health, risk state, kill-switch)
+- decision and prediction timeline with reason-code evidence
+- holdings/position inventory and realized/unrealized performance views
+- asset charts with strategy-action overlays
+
+Frontend constraints:
+
+- no direct database writes from UI
+- no bypass of runtime validation/risk gates
+- settings mutations must flow through governed APIs and emit auditable artifacts
+
+## 4.5 Kraken Connection UX Requirements
+
+The system must offer a simple guided flow for users to connect their Kraken account:
+
+1. guide user through API key creation with required scopes only
+2. enforce no-withdrawal key policy for trading credentials
+3. validate connectivity and permissions before runtime enablement
+4. default onboarding to paper mode before optional live enablement
+5. require explicit confirmation before enabling live order authority
 
 ---
 

@@ -45,6 +45,7 @@ The system consists of:
 3. Governance layer (specifications, constraints, migration history)
 4. Test & validation layer (unit + integration + SQL validation)
 5. Replay-safe accounting layer
+6. Planned operator control plane layer (frontend + governed control APIs + observability views)
 
 All runtime state must be reconstructable from database records.
 
@@ -171,6 +172,7 @@ Contains authoritative rule definitions:
 - `ARCHITECT_DECISIONS.md`
 - `MODEL_ASSUMPTIONS.md`
 - `TRADING_LOGIC_EXECUTION_SPEC.md`
+- `OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 
 These define:
 - Financial invariants
@@ -344,6 +346,8 @@ Future phases (per roadmap) will extend:
 - Live exchange connectivity
 - Paper trading deployment
 - Monitoring / dashboards
+- Operator frontend for governed settings + runtime observability
+- Guided Kraken account onboarding for user-managed API credential connection
 - Production orchestration
 
 ---
@@ -357,6 +361,7 @@ Agents operating in this codespace must:
 - Avoid architectural drift
 - Maintain deterministic behavior
 - Never bypass financial safety logic
+- Treat exchange credential handling and onboarding as security-critical system boundaries
 - Respect governance documents as binding contracts
 
 If conflict arises:

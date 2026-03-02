@@ -162,4 +162,19 @@ Logs must support deterministic replay.
 
 ---
 
+# 13. OPERATOR FRONTEND AND KRAKEN ONBOARDING RISK REQUIREMENTS
+
+The user-facing control plane must preserve risk enforcement guarantees:
+
+- frontend settings changes cannot bypass server-side risk validation
+- exposure/drawdown limits remain authoritative in runtime regardless of UI state
+- live trading enablement must remain blocked until Kraken credential validation succeeds
+- onboarding must enforce no-withdrawal trading key policy
+
+Detailed UX/control-plane requirements are defined in:
+
+- `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
+
+---
+
 END OF RISK MANAGEMENT RULES

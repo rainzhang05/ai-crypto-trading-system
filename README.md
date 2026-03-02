@@ -115,12 +115,46 @@ Primary implementation references:
 - `docs/specs/MASTER_SPEC.md`
 - `docs/specs/PROJECT_ROADMAP.md`
 - `docs/specs/ARCHITECT_DECISIONS.md`
+- `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 
 Developers should implement strategy/risk behavior directly from these specs.
 
 ---
 
-## 8. LLM Support Roadmap
+## 8. Planned User Frontend (Control Plane)
+
+Planned product surface includes a user-facing frontend for operating the bot safely.
+
+Required frontend capabilities:
+
+- modify governed strategy/risk profile settings (within policy bounds)
+- view current runtime status (mode, risk state, kill-switch status, health)
+- inspect upcoming/active decision context and model predictions
+- view current holdings, lots, and realized/unrealized PnL
+- view per-asset charts (price, position, and decision overlays)
+- view deterministic decision/action history with reason codes
+
+The frontend is planned as an operator control plane, not a risk bypass path.
+All writes remain governed, versioned, and replay-auditable.
+
+---
+
+## 9. Planned Kraken Account Connection (Easy Path)
+
+Planned onboarding includes the simplest safe path for users to connect their own Kraken account:
+
+1. Guided connection wizard (paper first, then optional live enablement).
+2. Step-by-step Kraken API key creation instructions with required permissions only.
+3. Enforced no-withdrawal key policy and explicit scope validation checks.
+4. One-time secure secret capture (never echoed in logs/UI after submission).
+5. Connection health check + balance/permissions verification before enabling runtime.
+6. Explicit final confirmation gate before live order authorization.
+
+This onboarding flow will be treated as a first-class roadmap deliverable, not optional UX polish.
+
+---
+
+## 10. LLM Support Roadmap
 
 Current order authority is quantitative-model driven.
 

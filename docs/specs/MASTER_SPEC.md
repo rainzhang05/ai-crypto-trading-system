@@ -162,8 +162,29 @@ Primary governance documents:
 - `docs/specs/PROJECT_GOVERNANCE.md`
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+- `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 - `docs/specs/SCHEMA_DDL_MASTER.md`
 - `docs/specs/ARCHITECT_DECISIONS.md`
+
+---
+
+# 12. Planned Operator Frontend and Kraken Onboarding
+
+Planned delivery scope includes a user-facing operator frontend and an easy, secure Kraken connection flow.
+
+Required frontend product surfaces:
+
+- governed profile/settings management
+- runtime status and risk-gate visibility
+- decision/prediction visibility with reason-code context
+- holdings and per-asset chart visibility
+
+Kraken onboarding requirements:
+
+- guided API key setup with minimum required scopes
+- explicit no-withdrawal key policy
+- secure credential handling and connectivity validation
+- paper-first default with explicit live enable confirmation
 
 ---
 
