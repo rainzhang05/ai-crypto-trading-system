@@ -6,9 +6,9 @@ This directory is organized by artifact type to keep deterministic governance as
 
 - `specs/`
   - Authoritative project contracts and acceptance criteria.
-  - Includes `MASTER_SPEC.md`, `PROJECT_ROADMAP.md`, `PROJECT_GOVERNANCE.md`, `ARCHITECT_DECISIONS.md`, `RISK_RULES.md`, `MODEL_ASSUMPTIONS.md`, `SCHEMA_DDL_MASTER.md`, `TRADING_LOGIC_EXECUTION_SPEC.md`, `OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`, `LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`, `MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`, `PRODUCTION_OPERATIONS_AND_RELIABILITY_SPEC.md`.
+  - Includes `MASTER_SPEC.md`, `PROJECT_ROADMAP.md`, `PROJECT_GOVERNANCE.md`, `ARCHITECT_DECISIONS.md`, `RISK_RULES.md`, `MODEL_ASSUMPTIONS.md`, `SCHEMA_DDL_MASTER.md`, `TRADING_LOGIC_EXECUTION_SPEC.md`, `HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`, `OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`, `LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`, `MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`, `PRODUCTION_OPERATIONS_AND_RELIABILITY_SPEC.md`.
   - Includes adaptive-horizon policy (no fixed global maximum holding window) and deterministic re-evaluation requirements.
-  - Includes future-binding frontend/operator control plane, Kraken onboarding, local runtime/privacy, model-bundle update requirements, and production operations reliability requirements.
+  - Includes future-binding historical data/backfill + continuous retraining requirements, frontend/operator control plane, Kraken onboarding, local runtime/privacy, model-bundle update requirements, and production operations reliability requirements.
 - `validations/`
   - Executable SQL validation gates used by test/rebuild flows.
   - Includes `PHASE_1C_VALIDATION.sql`, `PHASE_1D_RUNTIME_VALIDATION.sql`, `PHASE_2_REPLAY_HARNESS_VALIDATION.sql`, `PHASE_3_RUNTIME_VALIDATION.sql`, `PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql`, `PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql`, `TEST_RUNTIME_INSERT_ENABLE.sql`.

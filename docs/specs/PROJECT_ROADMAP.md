@@ -29,6 +29,7 @@ Authoritative strategy execution rules are defined in:
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 - `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
 - `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
+- `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
 - `docs/specs/PRODUCTION_OPERATIONS_AND_RELIABILITY_SPEC.md`
 
 ---
@@ -38,23 +39,24 @@ Authoritative strategy execution rules are defined in:
 Final system layers:
 
 1. Data Layer (PostgreSQL + TimescaleDB)
-2. Feature Engineering Layer
-3. Model Training Layer
-4. Model Inference Layer
-5. Strategy Engine
-6. Risk Engine
-7. Execution Engine
-8. Ledger & Portfolio Engine
-9. Replay Harness
-10. Backtest Orchestrator
-11. Paper Trading Adapter
-12. Live Trading Adapter
-13. Exchange Onboarding & Credential Gateway
-14. Local Runtime Service (Loopback Control API + Secure Secret Boundary)
-15. Operator Control Plane (macOS Desktop App + Control APIs)
-16. Monitoring & Alerting Layer
-17. Model Bundle Distribution & Update Layer
-18. Governance & Audit Layer
+2. Historical Data Provider & Archive Layer
+3. Feature Engineering Layer
+4. Model Training Layer
+5. Model Inference Layer
+6. Strategy Engine
+7. Risk Engine
+8. Execution Engine
+9. Ledger & Portfolio Engine
+10. Replay Harness
+11. Backtest Orchestrator
+12. Paper Trading Adapter
+13. Live Trading Adapter
+14. Exchange Onboarding & Credential Gateway
+15. Local Runtime Service (Loopback Control API + Secure Secret Boundary)
+16. Operator Control Plane (macOS Desktop App + Control APIs)
+17. Monitoring & Alerting Layer
+18. Model Bundle Distribution & Update Layer
+19. Governance & Audit Layer
 
 ---
 
@@ -291,7 +293,44 @@ Phase 5 implemented surfaces:
 
 ---
 
-## PHASE 6 — BACKTEST ORCHESTRATOR
+## PHASE 6A — HISTORICAL DATA FOUNDATION & CONTINUOUS TRAINING BOOTSTRAP
+
+Implement:
+
+- Canonical historical data provider adapter (deep-history capable)
+- Kraken public market-data adapter for venue-aligned reconciliation
+- Full available-history backfill for all Universe V1 symbols
+- Incremental sync for newly published market data
+- Late-arrival reconciliation with deterministic correction evidence
+- Dataset materialization with deterministic dataset hashes
+- Per-coin + global + ensemble training orchestration bootstrap
+- Scheduled and drift-triggered retraining automation hooks
+- Hindcast/forecast evaluation gates for continuous quality measurement
+
+Training universe policy:
+
+- Universe V1 is fixed to top-30 non-stable symbols defined in:
+  - `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
+- Universe V1 symbols:
+  - `BTC, ETH, BNB, XRP, SOL, TRX, ADA, BCH, XMR, LINK, XLM, HBAR, LTC, AVAX, ZEC, SUI, SHIB, TON, DOT, UNI, AAVE, TAO, NEAR, ETC, ICP, POL, KAS, ALGO, FIL, APT`
+- Universe changes require versioned governance updates (`UNIVERSE_V2+`).
+
+Provider/key readiness requirements:
+
+- Historical provider API credentials and endpoint configuration must be supported.
+- Kraken private trading keys are not required for Phase 6A.
+
+Acceptance:
+
+- Full available history is backfilled for all Universe V1 symbols.
+- Continuous sync is automated and deterministic.
+- Data quality gates (gaps, duplicates, timestamp ordering) are enforced.
+- Multi-model training bootstrap is operational on governed datasets.
+- Autonomous retraining runs with governed promotion gates and periodic operator review workflow.
+
+---
+
+## PHASE 6B — BACKTEST ORCHESTRATOR
 
 Implement:
 - Walk-forward training loop
@@ -562,6 +601,8 @@ Order-authoritative LLM behavior requires separate explicit governance approval.
 ## Stage 1 — Local Development (Mandatory)
 
 - Dockerized PostgreSQL + Timescale
+- External historical-data provider adapter setup + credential bootstrap
+- Local full-history backfill and continuous incremental sync pipeline
 - Local MLflow
 - Local deterministic testing
 - Local backtest
@@ -646,6 +687,8 @@ Project is considered complete when:
 - Cluster caps structurally enforced
 - Walk-forward contamination impossible
 - Model activation gated by OOS validation
+- Full available-history data ingestion and continuous incremental sync are operational for governed training universes
+- Per-coin specialist and global model retraining pipelines run continuously with deterministic lineage and governed promotion gates
 - Live trading runs without invariant violation
 - Adaptive horizon decisions are replay-reconstructable from stored state
 - Monitoring detects anomalies
@@ -689,13 +732,13 @@ Mandatory production-completeness areas are explicitly covered by roadmap phases
 # 7. CURRENT POSITION
 
 Active Phase:
-Phase 6 — Backtest Orchestrator (Ready to Start)
+Phase 6A — Historical Data Foundation & Continuous Training Bootstrap (Ready to Start)
 
 Blockers:
 - None on deterministic core, replay harness closure, Phase 3 runtime completion, Phase 4 lifecycle closure, or Phase 5 portfolio/ledger closure.
-- Phase 5 closure complete; Phase 6 execution can begin.
+- Phase 5 closure complete; Phase 6A execution can begin.
 
-Deterministic core, replay harness, governed Phase 3 runtime, deterministic Phase 4 order lifecycle, and deterministic Phase 5 portfolio/ledger runtime (Phase 1A/1B/1C/1D/2/3/4/5) are structurally complete and validated for Phase 6 entry.
+Deterministic core, replay harness, governed Phase 3 runtime, deterministic Phase 4 order lifecycle, and deterministic Phase 5 portfolio/ledger runtime (Phase 1A/1B/1C/1D/2/3/4/5) are structurally complete and validated for Phase 6A entry.
 
 ---
 

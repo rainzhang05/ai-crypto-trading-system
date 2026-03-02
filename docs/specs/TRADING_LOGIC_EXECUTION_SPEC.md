@@ -23,6 +23,7 @@ This specification is binding with:
 - `docs/specs/PROJECT_GOVERNANCE.md`
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/SCHEMA_DDL_MASTER.md`
+- `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 - `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
 - `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
@@ -186,6 +187,8 @@ Training policy:
 2. Strict historical-only feature construction.
 3. Walk-forward style validation remains mandatory.
 4. Model and profile versions are first-class runtime inputs.
+5. Training datasets must come from full available-history ingestion for the governed universe.
+6. Per-coin specialist and global cross-asset models must both feed deterministic ensemble decisions.
 
 ---
 

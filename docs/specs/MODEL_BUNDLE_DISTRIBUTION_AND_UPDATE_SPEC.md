@@ -27,6 +27,10 @@ Default bundle scope:
 
 Default bundles do not require full raw training datasets.
 
+Historical data acquisition/backfill for retraining is governed separately by:
+
+- `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
+
 ---
 
 # 2. Model Bundle Manifest Contract

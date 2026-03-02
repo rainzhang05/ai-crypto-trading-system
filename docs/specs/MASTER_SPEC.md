@@ -19,7 +19,7 @@ System goals:
 Current state:
 
 - Phase 0-5 deterministic core, replay harness, governed risk runtime, deterministic order lifecycle engine, and deterministic portfolio/ledger runtime are completed.
-- Phase 6 backtest orchestrator implementation is the next active roadmap slice per `PROJECT_ROADMAP.md`.
+- Phase 6A historical data foundation and continuous training bootstrap is the next active roadmap slice per `PROJECT_ROADMAP.md`.
 
 Authoritative strategy logic:
 
@@ -49,6 +49,8 @@ Exposure/position controls:
 - Deterministic feature generation
 - Timestamp integrity and replay compatibility
 - Multi-scale features are allowed; no mandatory fixed holding window assumptions
+- Full available market history must be ingested for the governed training universe.
+- Incremental market-data sync must be continuous and deterministic.
 
 ---
 
@@ -66,6 +68,8 @@ Training/inference requirements:
 - walk-forward validation
 - reproducible model lineage
 - drift-aware retraining policy
+- per-coin specialist models plus global cross-asset models
+- deterministic ensemble composition
 
 ---
 
@@ -162,6 +166,7 @@ Primary governance documents:
 - `docs/specs/PROJECT_GOVERNANCE.md`
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+- `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 - `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
 - `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
@@ -204,6 +209,24 @@ Model delivery/update direction:
 - trained inference-ready artifacts are shipped as signed release bundles
 - users should not initialize from empty/untrained models on first install
 - model updates require compatibility checks, atomic swap, and rollback on failure
+
+---
+
+# 14. Historical Data and Continuous Training Policy
+
+The platform must train from full available history, not short recent windows only.
+
+Required policy:
+
+- external historical-data provider integration is mandatory for deep-history backfill
+- continuous incremental sync must append new market data deterministically
+- training universe is versioned and governed (Universe V1 top-30 non-stable set)
+- Universe V1 symbols: `BTC, ETH, BNB, XRP, SOL, TRX, ADA, BCH, XMR, LINK, XLM, HBAR, LTC, AVAX, ZEC, SUI, SHIB, TON, DOT, UNI, AAVE, TAO, NEAR, ETC, ICP, POL, KAS, ALGO, FIL, APT`
+- retraining runs are scheduled and/or drift-triggered with promotion gates
+
+Authoritative implementation contract:
+
+- `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
 
 ---
 

@@ -18,7 +18,7 @@ Implementation state tracking:
 
 - Current phase-by-phase status is maintained in `AGENTS.md` and `docs/specs/PROJECT_ROADMAP.md`.
 - This README intentionally describes the final production-grade system behavior and invariants.
-- As of 2026-03-02, implementation closure is complete through Phase 5; Phase 6 is the next roadmap slice.
+- As of 2026-03-02, implementation closure is complete through Phase 5; Phase 6A is the next roadmap slice.
 
 ---
 
@@ -94,6 +94,22 @@ Training policy:
 - drift-aware retraining
 - reproducible lineage
 
+Phase 6A data policy:
+
+- full available historical data backfill for every governed training symbol
+- continuous incremental data sync for newly published market data
+- per-coin specialist models combined with global cross-asset models
+
+Initial training universe (V1, top-30 non-stable):
+
+`BTC, ETH, BNB, XRP, SOL, TRX, ADA, BCH, XMR, LINK, XLM, HBAR, LTC, AVAX, ZEC, SUI, SHIB, TON, DOT, UNI, AAVE, TAO, NEAR, ETC, ICP, POL, KAS, ALGO, FIL, APT`
+
+Required preparation for Phase 6A:
+
+- configure external historical market-data provider credentials (`HIST_MARKET_DATA_API_KEY`, provider-dependent secret/base URL as needed)
+- Kraken private API keys are not required until paper/live exchange-credential phases
+- copy `.env.example` to `.env` and populate provider credentials before running ingestion/training automation
+
 ---
 
 ## 6. Determinism and Replay
@@ -115,6 +131,7 @@ Primary implementation references:
 - `docs/specs/MASTER_SPEC.md`
 - `docs/specs/PROJECT_ROADMAP.md`
 - `docs/specs/ARCHITECT_DECISIONS.md`
+- `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 - `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
 - `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`

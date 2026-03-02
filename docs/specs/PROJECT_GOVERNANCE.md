@@ -8,6 +8,7 @@ This document defines non-negotiable governance rules for architecture, finance,
 Authoritative strategy behavior is defined in:
 
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+- `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 - `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
 - `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
@@ -51,6 +52,9 @@ Configurable-at-runtime policy:
 2. Timestamp integrity is mandatory.
 3. Raw data must be preserved before transformation.
 4. All feature pipelines must be reproducible.
+5. Full available historical data must be backfilled for every governed training symbol.
+6. Incremental ingestion of new market data must be continuous and deterministic.
+7. Data gaps/late arrivals require explicit reconciliation evidence; silent repair is forbidden.
 
 ---
 
@@ -63,6 +67,8 @@ Models must:
 - log training windows and parameters
 - support drift-aware retraining
 - remain reproducible
+- include per-coin specialist and global cross-asset modeling components
+- enforce governed promotion gates before runtime activation
 
 ---
 
@@ -154,6 +160,24 @@ Model and inference artifacts are governed release assets:
 - users must not start from an empty/untrained model state on first install
 - bundle compatibility (app/backend/model) must be versioned and enforced
 - update workflow must support verification, atomic install, and rollback on failure
+
+---
+
+# 7D. HISTORICAL DATA AND CONTINUOUS TRAINING GOVERNANCE
+
+Historical data + retraining governance requirements:
+
+- A deep-history external provider adapter is mandatory for model-training backfill scope.
+- Training universe must be versioned and explicitly documented.
+- Universe V1 is the top-30 non-stable governed set defined in:
+  - `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
+- Retraining must run continuously (scheduled and/or drift-triggered) with deterministic lineage evidence.
+- Provider credential handling must follow secure secret policies; secrets must never appear in logs/artifacts.
+- Phase 6A credential surface must support:
+  - `HIST_MARKET_DATA_PROVIDER`
+  - `HIST_MARKET_DATA_API_KEY`
+  - `HIST_MARKET_DATA_API_SECRET` (provider-dependent)
+  - `HIST_MARKET_DATA_BASE_URL` (provider-dependent)
 
 ---
 

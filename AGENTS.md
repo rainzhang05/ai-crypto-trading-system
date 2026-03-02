@@ -31,6 +31,7 @@ Authoritative governance rules are defined in:
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/SCHEMA_DDL_MASTER.md`
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
+- `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
 - `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
 - `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
 - `docs/specs/PRODUCTION_OPERATIONS_AND_RELIABILITY_SPEC.md`
@@ -44,13 +45,14 @@ These documents define non-negotiable constraints.
 The system consists of:
 
 1. Deterministic database layer (PostgreSQL + TimescaleDB)
-2. Execution layer (Python runtime logic)
-3. Governance layer (specifications, constraints, migration history)
-4. Test & validation layer (unit + integration + SQL validation)
-5. Replay-safe accounting layer
-6. Planned local runtime service layer (local daemon + control API + secure secret boundary)
-7. Planned operator control plane layer (macOS frontend + governed control APIs + observability views)
-8. Planned model bundle distribution/update layer (signed artifacts + compatibility/rollback)
+2. Planned historical data provider and archive layer (deep-history backfill + continuous sync)
+3. Execution layer (Python runtime logic)
+4. Governance layer (specifications, constraints, migration history)
+5. Test & validation layer (unit + integration + SQL validation)
+6. Replay-safe accounting layer
+7. Planned local runtime service layer (local daemon + control API + secure secret boundary)
+8. Planned operator control plane layer (macOS frontend + governed control APIs + observability views)
+9. Planned model bundle distribution/update layer (signed artifacts + compatibility/rollback)
 
 All runtime state must be reconstructable from database records.
 
@@ -65,6 +67,7 @@ All runtime state must be reconstructable from database records.
 - `README.md` – human-readable project intro
 - `docker-compose.yml` – database container orchestration
 - `schema_bootstrap.sql` – canonical executable schema snapshot
+- `.env.example` – Phase 6A provider/training environment template
 - `pytest.ini` – test configuration
 - `requirements-dev.txt` – development dependencies
 - `scripts/test_all.sh` – unified test runner
@@ -177,6 +180,7 @@ Contains authoritative rule definitions:
 - `ARCHITECT_DECISIONS.md`
 - `MODEL_ASSUMPTIONS.md`
 - `TRADING_LOGIC_EXECUTION_SPEC.md`
+- `HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
 - `OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
 - `LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
 - `MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
@@ -338,7 +342,12 @@ Completed:
 - Test coverage
 
 The system currently operates as a deterministic trading core with runtime-owned economic state materialization.
-Phase 5 is closed; Phase 6 is the next active roadmap slice per `docs/specs/PROJECT_ROADMAP.md`.
+Phase 5 is closed; Phase 6A is the next active roadmap slice per `docs/specs/PROJECT_ROADMAP.md`.
+Phase 6A implementation mandate:
+- historical provider integration + full available-history backfill
+- continuous incremental data sync
+- continuous retraining bootstrap across governed Universe V1
+- Universe V1 symbols: `BTC, ETH, BNB, XRP, SOL, TRX, ADA, BCH, XMR, LINK, XLM, HBAR, LTC, AVAX, ZEC, SUI, SHIB, TON, DOT, UNI, AAVE, TAO, NEAR, ETC, ICP, POL, KAS, ALGO, FIL, APT`
 Phase 5 closure details are documented in:
 
 - `docs/phases/phase_5_portfolio_ledger/IMPLEMENTATION_LOG_PHASE_5.md`
@@ -351,6 +360,8 @@ Phase 4 handoff details remain documented in:
 
 Future phases (per roadmap) will extend:
 
+- Historical data provider integration for full available-history market backfill and continuous sync
+- Multi-model continuous retraining (per-coin specialist + global models + ensemble)
 - Live exchange connectivity
 - Paper trading deployment
 - Monitoring / dashboards

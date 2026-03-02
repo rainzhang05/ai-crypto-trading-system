@@ -15,6 +15,7 @@ Repository executable-artifact coverage closure is mandatory for phase completio
 | 3 | Governed risk runtime implementation (profile-aware caps, volatility sizing, adaptive horizon routing) | Unit + DB integration + validation SQL | Phase 3 validation checks all return zero |
 | 4 | Deterministic order lifecycle (signal → order → fill → lot → trade) | Unit + DB integration + validation SQL | Phase 4 validation checks all return zero |
 | 5 | Deterministic portfolio/ledger engine (cash ledger + hourly state writers + replay parity extension) | Unit + DB integration + validation SQL | Phase 5 validation checks all return zero |
+| 6A | Historical data foundation + continuous training bootstrap (full-history backfill, incremental sync, per-coin/global training orchestration) | Provider adapter contract tests + ingestion integration tests + training pipeline tests | Full available history coverage for Universe V1 verified; incremental sync/idempotency passes; retraining lineage and promotion-gate evidence is deterministic |
 | Cross-Phase Coverage Policy | Repository executable-artifact coverage closure (Python + non-Python executables) | Coverage manifest + integration execution + contract tests | Every phase implementation is incomplete until coverage closure is achieved for executable artifacts introduced/modified by that phase |
 | Future Productization (8A/8B/9A/9B/9C/10A) | Local-first runtime + macOS control plane + Kraken onboarding + model bundle updates | Contract tests + integration tests + security/privacy checks + deterministic replay checks | Local-first control, onboarding gates, per-currency limits, and model update safety gates all pass before phase closure |
 | Production Ops & Reliability (10B/10C/10D/10E/10F/10G) | Compatibility governance + DR + incident response + audit export + retention + trust rotation | Contract tests + drill validations + release-gate checks | Production operations controls are validated and auditable before full production declaration |
@@ -72,6 +73,14 @@ Repository executable-artifact coverage closure is mandatory for phase completio
   - Full offline operation (except optional update check) remains functional.
   - Replay/audit parity remains intact after model-bundle update.
 
+- Historical data + continuous training scenarios (Phase 6A/6B):
+  - Historical provider adapter can backfill full available history for each Universe V1 symbol.
+  - Incremental sync appends new bars/trades without duplicate key drift.
+  - Gap detection emits explicit reconciliation tasks for missing intervals.
+  - Dataset hash remains deterministic for identical source windows.
+  - Per-coin specialist models and global models both train successfully and emit lineage metadata.
+  - Promotion gate blocks activation when walk-forward/drift thresholds fail.
+
 ## Pass/Fail Gates
 
 - Gate A: Clean-room DB bootstrap completes with no SQL errors.
@@ -92,6 +101,8 @@ Repository executable-artifact coverage closure is mandatory for phase completio
 - Gate O: First live authorization is blocked until paper-trial completion and explicit risk confirmation.
 - Gate P: Global and per-currency (`CAD`, `USD`, `USDC`) exposure caps are enforced with deterministic reason-code evidence.
 - Gate Q: Model bundle updates enforce signature/checksum/compatibility checks with rollback-on-failure.
+- Gate R: Universe V1 full-history backfill coverage is complete and auditable for all 30 symbols.
+- Gate S: Continuous retraining/promotion gates run deterministically with reproducible lineage and no silent activation on failed validation.
 
 ## Commands
 

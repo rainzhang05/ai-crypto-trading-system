@@ -45,6 +45,8 @@ Any assumption change must be reviewed and logged in ARCHITECT_DECISIONS.md.
 
 2.6 Cross-exchange data (Binance, Coinbase) is informational only and does not imply tradability on those exchanges.
 
+2.7 Full available-history ingestion from external data providers is required for governed training universes; unavailable intervals must be explicitly logged as coverage gaps (never silently imputed).
+
 ---
 
 # 3. FEATURE ENGINEERING ASSUMPTIONS
