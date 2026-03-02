@@ -18,6 +18,7 @@ Implementation state tracking:
 
 - Current phase-by-phase status is maintained in `AGENTS.md` and `docs/specs/PROJECT_ROADMAP.md`.
 - This README intentionally describes the final production-grade system behavior and invariants.
+- As of 2026-03-02, implementation closure is complete through Phase 5; Phase 6 is the next roadmap slice.
 
 ---
 
@@ -99,7 +100,7 @@ Training policy:
 
 All live decisions must remain deterministic and replay-reconstructable from stored state.
 
-Phase 0-2 replay tooling remains authoritative for deterministic validation.
+Phase 0-5 replay/runtime validation gates remain authoritative for deterministic validation.
 
 ---
 

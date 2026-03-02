@@ -5,9 +5,12 @@
 >
 # Global Codespace Test Report (Phase 0 -> 1A -> 1B -> 1C -> 1D) [Historical]
 
-Current Phase 2 status and closure evidence are documented in:
+Current post-historical closure evidence is documented in:
 - `docs/reports/PHASE_2_TEST_REPORT.md`
 - `docs/phases/phase_2_replay_harness/PHASE_2_COMPLETION_REPORT.md`
+- `docs/phases/phase_3_risk_engine_runtime/IMPLEMENTATION_LOG_PHASE_3B.md`
+- `docs/phases/phase_4_order_lifecycle/IMPLEMENTATION_LOG_PHASE_4.md`
+- `docs/phases/phase_5_portfolio_ledger/IMPLEMENTATION_LOG_PHASE_5.md`
 
 ## Final Decision
 

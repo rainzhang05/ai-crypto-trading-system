@@ -4,6 +4,10 @@
 Date: 2026-03-02  
 Status: Completed
 
+Historical note:
+- This document remains the frozen Phase 4 closure record.
+- Phase 5 has since been completed; see `docs/phases/phase_5_portfolio_ledger/IMPLEMENTATION_LOG_PHASE_5.md` for the subsequent closure package.
+
 ---
 
 ## Scope Delivered
@@ -88,7 +92,7 @@ Phase 4 closure criteria met:
 - validation gates zeroed
 - no schema drift from canonical bootstrap
 
-Phase 5 is unblocked.
+At Phase 4 closure, Phase 5 was unblocked.
 
 ---
 

@@ -18,8 +18,8 @@ System goals:
 
 Current state:
 
-- Phase 0-4 deterministic core, replay harness, governed risk runtime, and deterministic order lifecycle engine are completed.
-- Phase 5 portfolio/ledger writer implementation is the next active roadmap slice per `PROJECT_ROADMAP.md`.
+- Phase 0-5 deterministic core, replay harness, governed risk runtime, deterministic order lifecycle engine, and deterministic portfolio/ledger runtime are completed.
+- Phase 6 backtest orchestrator implementation is the next active roadmap slice per `PROJECT_ROADMAP.md`.
 
 Authoritative strategy logic:
 

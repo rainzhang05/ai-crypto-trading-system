@@ -10,7 +10,7 @@ This directory is organized by artifact type to keep deterministic governance as
   - Includes adaptive-horizon policy (no fixed global maximum holding window) and deterministic re-evaluation requirements.
 - `validations/`
   - Executable SQL validation gates used by test/rebuild flows.
-  - Includes `PHASE_1C_VALIDATION.sql`, `PHASE_1D_RUNTIME_VALIDATION.sql`, `TEST_RUNTIME_INSERT_ENABLE.sql`.
+  - Includes `PHASE_1C_VALIDATION.sql`, `PHASE_1D_RUNTIME_VALIDATION.sql`, `PHASE_2_REPLAY_HARNESS_VALIDATION.sql`, `PHASE_3_RUNTIME_VALIDATION.sql`, `PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql`, `PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql`, `TEST_RUNTIME_INSERT_ENABLE.sql`.
 - `repairs/`
   - Revision repair SQL artifacts kept at docs root scope.
   - Includes `PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql`, `PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql`.
@@ -34,4 +34,8 @@ This directory is organized by artifact type to keep deterministic governance as
 - Validation SQL paths consumed by harness/tests:
   - `docs/validations/PHASE_1C_VALIDATION.sql`
   - `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
+  - `docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
+  - `docs/validations/PHASE_3_RUNTIME_VALIDATION.sql`
+  - `docs/validations/PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql`
+  - `docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql`
   - `docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql`

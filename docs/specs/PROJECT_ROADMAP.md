@@ -228,7 +228,7 @@ Status:
 
 ---
 
-## PHASE 5 — PORTFOLIO & LEDGER ENGINE (READY TO START)
+## PHASE 5 — PORTFOLIO & LEDGER ENGINE ✅ COMPLETED
 
 Implement:
 - Deterministic ledger writer
@@ -243,7 +243,19 @@ Must guarantee:
 - No drift
 - Immutable economic record
 
-Phase 5 entry contract (authoritative handoff from Phase 4):
+Status:
+- ✅ Runtime-owned deterministic hourly economic state materialization integrated into `execute_hour` for:
+  - `portfolio_hourly_state`
+  - `risk_hourly_state`
+  - `cluster_exposure_hourly_state`
+- ✅ Deterministic `cash_ledger` rows are generated from `order_fill` with side-specific cash-delta semantics including fee/slippage cash cost.
+- ✅ Existing-row conflict policy enforced: hash-match idempotent behavior, hash mismatch hard-abort.
+- ✅ BACKTEST bootstrap cash fallback integrated via `backtest_run.initial_capital`; PAPER/LIVE strict bootstrap requirement preserved.
+- ✅ Replay parity comparisons extended to all Phase 5 economic artifacts.
+- ✅ CLI output surfaces include Phase 5 write counts for execution/replay observability.
+- ✅ Phase 5 SQL validation gate added and wired into integration harness (`PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql`).
+
+Phase 5 execution contract (authoritative handoff from Phase 4):
 
 - Input artifacts are authoritative from completed Phase 4 tables:
   - `order_fill`
@@ -261,7 +273,7 @@ Phase 5 entry contract (authoritative handoff from Phase 4):
   - replay reproducibility
   - schema contract equivalence with `schema_bootstrap.sql`
 
-Phase 5 starting implementation surfaces:
+Phase 5 implemented surfaces:
 
 - `execution/replay_engine.py` (planning + deterministic economic artifact emission)
 - `execution/runtime_writer.py` (row builders/inserts/hash materialization for economic tables)
@@ -465,13 +477,13 @@ Project is considered complete when:
 # 7. CURRENT POSITION
 
 Active Phase:
-Phase 5 — Portfolio & Ledger Engine (Ready to Start)
+Phase 6 — Backtest Orchestrator (Ready to Start)
 
 Blockers:
-- None on deterministic core, replay harness closure, Phase 3 runtime completion, or Phase 4 lifecycle closure.
-- Phase 4 closure complete; Phase 5 execution can begin.
+- None on deterministic core, replay harness closure, Phase 3 runtime completion, Phase 4 lifecycle closure, or Phase 5 portfolio/ledger closure.
+- Phase 5 closure complete; Phase 6 execution can begin.
 
-Deterministic core, replay harness, governed Phase 3 runtime, and deterministic Phase 4 order lifecycle (Phase 1A/1B/1C/1D/2/3/4) are structurally complete and validated for Phase 5 entry.
+Deterministic core, replay harness, governed Phase 3 runtime, deterministic Phase 4 order lifecycle, and deterministic Phase 5 portfolio/ledger runtime (Phase 1A/1B/1C/1D/2/3/4/5) are structurally complete and validated for Phase 6 entry.
 
 ---
 

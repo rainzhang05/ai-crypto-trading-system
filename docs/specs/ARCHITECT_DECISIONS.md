@@ -549,7 +549,56 @@ Historical deterministic scaffolding remains valid; replay contract is extended,
 
 Architect: Approved  
 Auditor: Validation completed (`pytest -q`, `scripts/test_all.sh`, Phase 4 SQL gate)  
-Status: Approved and implemented; Phase 5 authorized
+Status: Approved and implemented; Phase 5 authorized (closure recorded in ARCH-0008)
+
+---
+
+## DECISION ARCH-0008 — PHASE 5 DETERMINISTIC PORTFOLIO/LEDGER CLOSURE
+
+Date: 2026-03-02  
+Module Affected: Execution Runtime, Deterministic Context, Replay Engine, Runtime Writer, Runtime Validation Layer
+
+### Description
+
+Phase 5 is formally closed with deterministic runtime ownership of economic state materialization and cash-ledger writes:
+
+- runtime-owned hourly writers for:
+  - `portfolio_hourly_state`
+  - `risk_hourly_state`
+  - `cluster_exposure_hourly_state`
+- deterministic `cash_ledger` emission from `order_fill` artifacts with hash-linked continuity
+- deterministic bootstrap-capital policy for ledger initialization and strict abort behavior for invalid bootstrap contexts
+- replay parity extension for all Phase 5 economic artifacts
+- CLI/runtime validation surfaces extended for Phase 5 write counts and SQL gate coverage
+
+### Reason
+
+Phase 4 lifecycle determinism requires deterministic economic ownership to close accounting continuity and replay-complete attestation before orchestration/live adapter phases.
+
+### Risk Impact
+
+MEDIUM / CONTROLLED.
+
+- Positive: deterministic ownership of cash/portfolio/risk/cluster state removes implicit preseed assumptions and reduces risk of silent economic drift.
+- Controlled risk: existing-row conflict handling is strict (hash-match idempotent, hash-mismatch abort).
+- No-leverage, append-only, and risk-tier governance controls remain preserved.
+
+### Backtest Impact
+
+Yes, runtime artifact graph now includes deterministic Phase 5 economic tables as replay-authoritative surfaces:
+
+- `cash_ledger`
+- `portfolio_hourly_state`
+- `cluster_exposure_hourly_state`
+- `risk_hourly_state`
+
+Historical deterministic artifacts remain valid; replay contract is extended, not loosened.
+
+### Approval
+
+Architect: Approved  
+Auditor: Validation scope extended through Phase 5 replay parity and SQL gates  
+Status: Approved and implemented; Phase 6 authorized
 
 ---
 

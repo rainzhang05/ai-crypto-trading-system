@@ -19,4 +19,5 @@ Current directory state includes:
 - Historical closure artifacts for Phase 0-2.
 - Phase 3 implementation logs (kickoff + completion).
 - Phase 4 implementation log (order lifecycle closure).
-- Active phase artifacts should now target Phase 5 onward.
+- Phase 5 implementation log (portfolio/ledger engine closure).
+- Active phase artifacts should now target Phase 6 onward.

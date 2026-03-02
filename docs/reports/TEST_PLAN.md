@@ -1,4 +1,4 @@
-# Global Codespace Test Plan (Phase 0 -> 1A -> 1B -> 1C -> 1D -> 2)
+# Global Codespace Test Plan (Phase 0 -> 1A -> 1B -> 1C -> 1D -> 2 -> 3 -> 4 -> 5)
 
 ## Scope Matrix
 
@@ -10,6 +10,9 @@
 | 1C (Rev B/C) | Revision C repair artifacts, trigger/function/`_v2` cleanup readiness | Governance artifact verification + validation SQL | Required files exist and validation checks all return zero |
 | 1D | Deterministic runtime execution modules (`execution/*`) and replay parity | Unit + DB integration + replay determinism tests | Runtime execution/replay tests pass; mismatch count zero; execution module coverage target = 100% |
 | 2 | Replay harness architecture (boundary loader, canonical serialization, hash DAG, failure classification, window parity aggregation) | Unit + DB integration + validation SQL | Phase 2 validation checks all return zero; replay harness tests pass |
+| 3 | Governed risk runtime implementation (profile-aware caps, volatility sizing, adaptive horizon routing) | Unit + DB integration + validation SQL | Phase 3 validation checks all return zero |
+| 4 | Deterministic order lifecycle (signal → order → fill → lot → trade) | Unit + DB integration + validation SQL | Phase 4 validation checks all return zero |
+| 5 | Deterministic portfolio/ledger engine (cash ledger + hourly state writers + replay parity extension) | Unit + DB integration + validation SQL | Phase 5 validation checks all return zero |
 
 ## Test Categories
 
@@ -35,6 +38,9 @@
   - `docs/validations/PHASE_1C_VALIDATION.sql`
   - `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql`
   - `docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql`
+  - `docs/validations/PHASE_3_RUNTIME_VALIDATION.sql`
+  - `docs/validations/PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql`
+  - `docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql`
 
 ## Pass/Fail Gates
 
@@ -43,10 +49,13 @@
 - Gate C: `docs/validations/PHASE_1D_RUNTIME_VALIDATION.sql` returns zero violations for all checks.
   - Includes explicit quantity overflow guard: `quantity_overflow_violation`.
 - Gate D: `docs/validations/PHASE_2_REPLAY_HARNESS_VALIDATION.sql` returns zero violations for all checks.
-- Gate E: Schema equivalence check succeeds (`live_schema.sql` equals `schema_bootstrap.sql`; identical SHA-256).
-- Gate F: Pytest suite passes completely.
-- Gate G: Coverage across `execution/*` is 100% line coverage.
-- Gate H: Command exits non-zero on any failure (abort discipline enforced by `set -euo pipefail`).
+- Gate E: `docs/validations/PHASE_3_RUNTIME_VALIDATION.sql` returns zero violations for all checks.
+- Gate F: `docs/validations/PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql` returns zero violations for all checks.
+- Gate G: `docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql` returns zero violations for all checks.
+- Gate H: Schema equivalence check succeeds (`live_schema.sql` equals `schema_bootstrap.sql`; identical SHA-256).
+- Gate I: Pytest suite passes completely.
+- Gate J: Coverage across `execution/*` is 100% line coverage.
+- Gate K: Command exits non-zero on any failure (abort discipline enforced by `set -euo pipefail`).
 
 ## Commands
 
@@ -66,7 +75,7 @@ Equivalent direct command:
 1. Starts ephemeral TimescaleDB container.
 2. Creates fresh `crypto_db_test`.
 3. Applies `schema_bootstrap.sql` with `psql -v ON_ERROR_STOP=1`.
-4. Runs Phase 1C + Phase 1D + Phase 2 validation SQL (must be all zero).
+4. Runs Phase 1C + Phase 1D + Phase 2 + Phase 3 + Phase 4 + Phase 5 validation SQL (must be all zero).
 5. Dumps schema and verifies canonical equivalence + SHA-256 match.
 6. Enables test-only insert path on ephemeral DB via `docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql`.
 7. Runs Phase 2 replay-tool smoke check (`replay-tool`) on clean bootstrap state.

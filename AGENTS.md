@@ -190,6 +190,9 @@ Contains phase-by-phase implementation logs:
 - Phase 0 – Data layer foundation
 - Phase 1A–1D – Deterministic contract hardening
 - Phase 2 – Replay harness architecture
+- Phase 3 – Governed risk runtime implementation
+- Phase 4 – Deterministic order lifecycle closure
+- Phase 5 – Deterministic portfolio/ledger runtime closure
 
 These logs document architectural evolution and repair cycles.
 
@@ -318,15 +321,21 @@ Completed:
 - Phase 2 – Replay harness architecture (deterministic replay tool implemented and validated)
 - Phase 3 – Governed risk runtime implementation (profile persistence, volatility sizing, adaptive horizon, severe-loss recovery intent)
 - Phase 4 – Deterministic order lifecycle engine (Signal→Order→Fill→Lot→Trade, deterministic retry/partial-fill handling, FIFO sell realization, replay parity extension)
+- Phase 5 – Deterministic portfolio/ledger engine (runtime-owned hourly economic state materialization, deterministic cash-ledger writes, and replay parity for economic artifacts)
 - Walk-forward gating
 - Runtime risk enforcement
 - Replay validation
 - Test coverage
 
-The system currently operates as a deterministic trading core.
-Phase 4 is closed; Phase 5 is ready to begin per `docs/specs/PROJECT_ROADMAP.md`.
-Phase 5 handoff details are documented in:
+The system currently operates as a deterministic trading core with runtime-owned economic state materialization.
+Phase 5 is closed; Phase 6 is the next active roadmap slice per `docs/specs/PROJECT_ROADMAP.md`.
+Phase 5 closure details are documented in:
 
+- `docs/phases/phase_5_portfolio_ledger/IMPLEMENTATION_LOG_PHASE_5.md`
+- `docs/specs/ARCHITECT_DECISIONS.md`
+- `docs/specs/PROJECT_ROADMAP.md`
+
+Phase 4 handoff details remain documented in:
 - `docs/phases/phase_4_order_lifecycle/IMPLEMENTATION_LOG_PHASE_4.md`
 - `docs/specs/PROJECT_ROADMAP.md`
 
