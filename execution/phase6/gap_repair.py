@@ -46,12 +46,29 @@ def detect_gap_events(
         },
     )
 
+    existing_rows = db.fetch_all(
+        """
+        SELECT gap_start_ts_utc, gap_end_ts_utc
+        FROM data_gap_event
+        WHERE source_name = 'COINAPI'
+          AND symbol = :symbol
+          AND gap_start_ts_utc >= :window_start
+        """,
+        {
+            "symbol": symbol,
+            "window_start": datetime.now(tz=timezone.utc) - timedelta(hours=lookback_hours),
+        },
+    )
+    existing_pairs = {(row["gap_start_ts_utc"], row["gap_end_ts_utc"]) for row in existing_rows}
+
     inserted = 0
     expected_step = timedelta(minutes=expected_step_minutes)
     for idx in range(1, len(rows)):
         prev_ts = rows[idx - 1]["watermark_ts_utc"]
         curr_ts = rows[idx]["watermark_ts_utc"]
         if curr_ts - prev_ts <= expected_step:
+            continue
+        if (prev_ts, curr_ts) in existing_pairs:
             continue
         event_id = str(deterministic_uuid("phase6_gap_event", symbol, prev_ts.isoformat(), curr_ts.isoformat()))
         row_hash = stable_hash(("data_gap_event", event_id, symbol, prev_ts.isoformat(), curr_ts.isoformat()))
@@ -78,6 +95,7 @@ def detect_gap_events(
                 "row_hash": row_hash,
             },
         )
+        existing_pairs.add((prev_ts, curr_ts))
         inserted += 1
 
     return inserted
@@ -99,6 +117,19 @@ def repair_pending_gaps(
         """,
         {},
     )
+    terminal_rows = db.fetch_all(
+        """
+        SELECT symbol, gap_start_ts_utc, gap_end_ts_utc
+        FROM data_gap_event
+        WHERE status IN ('REPAIRED', 'FAILED')
+        """,
+        {},
+    )
+    resolved_pairs = {
+        (str(row["symbol"]), row["gap_start_ts_utc"], row["gap_end_ts_utc"])
+        for row in terminal_rows
+    }
+
     repaired = 0
     failed = 0
 
@@ -107,6 +138,9 @@ def repair_pending_gaps(
         symbol = str(row["symbol"])
         start_ts = row["gap_start_ts_utc"]
         end_ts = row["gap_end_ts_utc"]
+        pair_key = (symbol, start_ts, end_ts)
+        if pair_key in resolved_pairs:
+            continue
         try:
             trades, _ = provider.fetch_trades(symbol, start_ts, end_ts, None)
             chunks = archive_trade_ticks(
@@ -122,40 +156,64 @@ def repair_pending_gaps(
                 symbol=symbol,
                 chunks=chunks,
             )
+            terminal_id = str(deterministic_uuid("phase6_gap_event_terminal", gap_id, "REPAIRED"))
             db.execute(
                 """
-                UPDATE data_gap_event
-                SET status = 'REPAIRED',
-                    resolved_at_utc = :resolved_at_utc,
-                    details_hash = :details_hash,
-                    row_hash = :row_hash
-                WHERE gap_event_id = :gap_event_id
+                INSERT INTO data_gap_event (
+                    gap_event_id, source_name, symbol,
+                    gap_start_ts_utc, gap_end_ts_utc,
+                    status, detected_at_utc, resolved_at_utc,
+                    details_hash, row_hash
+                ) VALUES (
+                    :gap_event_id, 'COINAPI', :symbol,
+                    :gap_start_ts_utc, :gap_end_ts_utc,
+                    'REPAIRED', :detected_at_utc, :resolved_at_utc,
+                    :details_hash, :row_hash
+                )
+                ON CONFLICT (gap_event_id) DO NOTHING
                 """,
                 {
+                    "gap_event_id": terminal_id,
+                    "symbol": symbol,
+                    "gap_start_ts_utc": start_ts,
+                    "gap_end_ts_utc": end_ts,
+                    "detected_at_utc": datetime.now(tz=timezone.utc),
                     "resolved_at_utc": datetime.now(tz=timezone.utc),
-                    "details_hash": stable_hash(("repaired", gap_id, len(trades))),
-                    "row_hash": stable_hash(("data_gap_event", gap_id, "REPAIRED", len(trades))),
-                    "gap_event_id": gap_id,
+                    "details_hash": stable_hash(("gap_resolution", gap_id, "REPAIRED", len(trades))),
+                    "row_hash": stable_hash(("data_gap_event", terminal_id, "REPAIRED", len(trades))),
                 },
             )
             repaired += 1
+            resolved_pairs.add(pair_key)
         except Exception:
+            terminal_id = str(deterministic_uuid("phase6_gap_event_terminal", gap_id, "FAILED"))
             db.execute(
                 """
-                UPDATE data_gap_event
-                SET status = 'FAILED',
-                    resolved_at_utc = :resolved_at_utc,
-                    details_hash = :details_hash,
-                    row_hash = :row_hash
-                WHERE gap_event_id = :gap_event_id
+                INSERT INTO data_gap_event (
+                    gap_event_id, source_name, symbol,
+                    gap_start_ts_utc, gap_end_ts_utc,
+                    status, detected_at_utc, resolved_at_utc,
+                    details_hash, row_hash
+                ) VALUES (
+                    :gap_event_id, 'COINAPI', :symbol,
+                    :gap_start_ts_utc, :gap_end_ts_utc,
+                    'FAILED', :detected_at_utc, :resolved_at_utc,
+                    :details_hash, :row_hash
+                )
+                ON CONFLICT (gap_event_id) DO NOTHING
                 """,
                 {
+                    "gap_event_id": terminal_id,
+                    "symbol": symbol,
+                    "gap_start_ts_utc": start_ts,
+                    "gap_end_ts_utc": end_ts,
+                    "detected_at_utc": datetime.now(tz=timezone.utc),
                     "resolved_at_utc": datetime.now(tz=timezone.utc),
-                    "details_hash": stable_hash(("failed", gap_id)),
-                    "row_hash": stable_hash(("data_gap_event", gap_id, "FAILED")),
-                    "gap_event_id": gap_id,
+                    "details_hash": stable_hash(("gap_resolution", gap_id, "FAILED")),
+                    "row_hash": stable_hash(("data_gap_event", terminal_id, "FAILED")),
                 },
             )
             failed += 1
+            resolved_pairs.add(pair_key)
 
     return GapRepairResult(repaired_count=repaired, failed_count=failed)

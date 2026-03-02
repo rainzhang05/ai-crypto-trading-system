@@ -188,9 +188,30 @@ def test_detect_gap_events_and_repair_paths(monkeypatch: pytest.MonkeyPatch, tmp
     assert inserted == 1
     assert len(db.executed) == 1
 
+    db_existing = FakeDB()
+    db_existing.set_all(
+        "FROM ingestion_watermark_history",
+        [
+            {"watermark_ts_utc": base},
+            {"watermark_ts_utc": base + timedelta(minutes=5)},
+        ],
+    )
+    db_existing.set_all(
+        "FROM data_gap_event",
+        [
+            {
+                "gap_start_ts_utc": base,
+                "gap_end_ts_utc": base + timedelta(minutes=5),
+            }
+        ],
+    )
+    inserted_existing = detect_gap_events(db=db_existing, symbol="BTC", expected_step_minutes=1, lookback_hours=24)
+    assert inserted_existing == 0
+    assert len(db_existing.executed) == 0
+
     pending_db = FakeDB()
     pending_db.set_all(
-        "FROM data_gap_event",
+        "WHERE status = 'PENDING'",
         [
             {
                 "gap_event_id": "g1",
@@ -206,6 +227,7 @@ def test_detect_gap_events_and_repair_paths(monkeypatch: pytest.MonkeyPatch, tmp
             },
         ],
     )
+    pending_db.set_all("WHERE status IN ('REPAIRED', 'FAILED')", [])
 
     class _RepairProvider:
         def __init__(self) -> None:
@@ -236,3 +258,29 @@ def test_detect_gap_events_and_repair_paths(monkeypatch: pytest.MonkeyPatch, tmp
     result = repair_pending_gaps(db=pending_db, provider=_RepairProvider(), local_cache_dir=str(tmp_path))
     assert result.repaired_count == 1
     assert result.failed_count == 1
+
+    skip_db = FakeDB()
+    skip_db.set_all(
+        "WHERE status = 'PENDING'",
+        [
+            {
+                "gap_event_id": "g3",
+                "symbol": "BTC",
+                "gap_start_ts_utc": base,
+                "gap_end_ts_utc": base + timedelta(minutes=5),
+            }
+        ],
+    )
+    skip_db.set_all(
+        "WHERE status IN ('REPAIRED', 'FAILED')",
+        [
+            {
+                "symbol": "BTC",
+                "gap_start_ts_utc": base,
+                "gap_end_ts_utc": base + timedelta(minutes=5),
+            }
+        ],
+    )
+    skipped = repair_pending_gaps(db=skip_db, provider=_RepairProvider(), local_cache_dir=str(tmp_path))
+    assert skipped.repaired_count == 0
+    assert skipped.failed_count == 0

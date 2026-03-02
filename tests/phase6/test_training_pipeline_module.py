@@ -175,3 +175,31 @@ def test_run_training_cycle_approved_and_rejected(monkeypatch: pytest.MonkeyPatc
     )
     assert result_reject.approved is False
     assert result_reject.reason_code == "REJECTED"
+
+
+def test_run_training_cycle_failure_logs_failed_completion(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = FakeDB()
+    _stub_cycle_dependencies(monkeypatch, tmp_path / "failed", approved=True)
+    monkeypatch.setattr(
+        training_pipeline,
+        "train_tree_specialists",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("train failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="train failed"):
+        training_pipeline.run_training_cycle(
+            db=db,
+            symbols=("BTC",),
+            local_cache_dir=tmp_path,
+            output_root=tmp_path / "out-failed",
+            account_id=1,
+            cost_profile_id=1,
+            strategy_code_sha="a" * 40,
+            config_hash="cfg",
+            universe_hash="univ",
+            random_seed=7,
+            cycle_kind="MANUAL",
+        )
+
+    statuses = [params.get("status") for _sql, params in db.executed if "status" in params]
+    assert "FAILED" in statuses

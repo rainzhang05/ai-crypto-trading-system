@@ -209,22 +209,38 @@ def main() -> int:
         if args.command == "bootstrap-backfill":
             end_ts = args.end_ts_utc or datetime.now(tz=timezone.utc)
             start_ts = args.start_ts_utc or (end_ts - timedelta(days=365 * 5))
-            daemon.run_bootstrap_backfill(start_ts_utc=start_ts, end_ts_utc=end_ts)
+            daemon.acquire_exclusive_lock()
+            try:
+                daemon.run_bootstrap_backfill(start_ts_utc=start_ts, end_ts_utc=end_ts)
+            finally:
+                daemon.release_exclusive_lock()
             conn.commit()
             return 0
 
         if args.command == "sync-now":
-            daemon.run_incremental_sync()
+            daemon.acquire_exclusive_lock()
+            try:
+                daemon.run_incremental_sync()
+            finally:
+                daemon.release_exclusive_lock()
             conn.commit()
             return 0
 
         if args.command == "train-now":
-            daemon.run_training(cycle_kind="MANUAL")
+            daemon.acquire_exclusive_lock()
+            try:
+                daemon.run_training(cycle_kind="MANUAL")
+            finally:
+                daemon.release_exclusive_lock()
             conn.commit()
             return 0
 
         if args.command == "repair-gaps":
-            daemon.run_gap_repair()
+            daemon.acquire_exclusive_lock()
+            try:
+                daemon.run_gap_repair()
+            finally:
+                daemon.release_exclusive_lock()
             conn.commit()
             return 0
 

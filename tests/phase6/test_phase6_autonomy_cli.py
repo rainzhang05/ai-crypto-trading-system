@@ -158,6 +158,7 @@ def test_universe_helpers_and_build_daemon(monkeypatch: pytest.MonkeyPatch) -> N
         api_budget_per_minute=10,
         kraken_public_base_url="https://api.kraken.com",
         training_universe_version="v1",
+        local_data_cache_dir=Path("."),
     )
     monkeypatch.setattr(cli, "load_phase6_config", lambda: cfg)
     monkeypatch.setattr(cli, "_ensure_universe_state", lambda _db, _provider, _v: ())
@@ -216,6 +217,8 @@ def test_main_command_paths(command: str, expected: int, monkeypatch: pytest.Mon
         run_gap_repair=lambda: None,
         run_once=lambda: None,
         daemon_loop=lambda max_cycles=None: None,
+        acquire_exclusive_lock=lambda: None,
+        release_exclusive_lock=lambda: None,
     )
     monkeypatch.setattr(cli, "_build_parser", lambda: _StubParser(args))
     monkeypatch.setattr(cli, "_resolve_connection", lambda _args: conn)
@@ -245,7 +248,11 @@ def test_main_unknown_and_exception_rollback(monkeypatch: pytest.MonkeyPatch) ->
 
     conn2 = _FakeConnection()
     args2 = argparse.Namespace(command="sync-now", dsn=None, host=None, port=None, dbname=None, user=None, password=None, max_cycles=None, start_ts_utc=None, end_ts_utc=None)
-    daemon = SimpleNamespace(run_incremental_sync=lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    daemon = SimpleNamespace(
+        run_incremental_sync=lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+        acquire_exclusive_lock=lambda: None,
+        release_exclusive_lock=lambda: None,
+    )
     monkeypatch.setattr(cli, "_build_parser", lambda: _StubParser(args2))
     monkeypatch.setattr(cli, "_resolve_connection", lambda _args: conn2)
     monkeypatch.setattr(cli, "_build_daemon", lambda _args, _db: daemon)

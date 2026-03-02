@@ -30,7 +30,12 @@ class Phase6Config:
     drift_accuracy_drop_pp: float
     drift_ece_delta: float
     drift_psi_threshold: float
+    drift_retrain_cooldown_minutes: int
+    drift_min_baseline_samples: int
     promotion_local_branch: str
+    daemon_lock_stale_seconds: int
+    daemon_failure_backoff_seconds: int
+    daemon_max_consecutive_failures: int
 
 
 _REQUIRED_KEYS: tuple[str, ...] = (
@@ -119,5 +124,10 @@ def load_phase6_config() -> Phase6Config:
         drift_accuracy_drop_pp=_read_float("PHASE6_DRIFT_ACCURACY_DROP_PP", 5.0),
         drift_ece_delta=_read_float("PHASE6_DRIFT_ECE_DELTA", 0.03),
         drift_psi_threshold=_read_float("PHASE6_DRIFT_PSI_THRESHOLD", 0.25),
+        drift_retrain_cooldown_minutes=_read_int("PHASE6_DRIFT_RETRAIN_COOLDOWN_MINUTES", 360),
+        drift_min_baseline_samples=_read_int("PHASE6_DRIFT_MIN_BASELINE_SAMPLES", 24),
         promotion_local_branch=os.getenv("PHASE6_PROMOTION_LOCAL_BRANCH", "automation/phase6-promotions").strip(),
+        daemon_lock_stale_seconds=_read_int("PHASE6_DAEMON_LOCK_STALE_SECONDS", 900),
+        daemon_failure_backoff_seconds=_read_int("PHASE6_DAEMON_FAILURE_BACKOFF_SECONDS", 120),
+        daemon_max_consecutive_failures=_read_int("PHASE6_DAEMON_MAX_CONSECUTIVE_FAILURES", 10),
     )

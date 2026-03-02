@@ -157,23 +157,6 @@ def run_incremental_sync(
             },
         )
 
-    db.execute(
-        """
-        UPDATE ingestion_cycle
-        SET completed_at_utc = :completed_at_utc,
-            status = 'COMPLETED',
-            details_hash = :details_hash,
-            row_hash = :row_hash
-        WHERE ingestion_cycle_id = :ingestion_cycle_id
-        """,
-        {
-            "completed_at_utc": datetime.now(tz=timezone.utc),
-            "details_hash": stable_hash(("incremental_done", symbols_synced, bars_written, trades_archived)),
-            "row_hash": stable_hash(("ingestion_cycle", cycle_id, "COMPLETED", symbols_synced)),
-            "ingestion_cycle_id": cycle_id,
-        },
-    )
-
     return IncrementalSyncResult(
         ingestion_cycle_id=cycle_id,
         symbols_synced=symbols_synced,

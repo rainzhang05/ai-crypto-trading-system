@@ -38,6 +38,11 @@ def test_load_phase6_config_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.ingestion_loop_seconds == 60
     assert cfg.force_local_data_for_training is True
     assert cfg.allow_provider_calls_during_training is False
+    assert cfg.drift_retrain_cooldown_minutes == 360
+    assert cfg.drift_min_baseline_samples == 24
+    assert cfg.daemon_lock_stale_seconds == 900
+    assert cfg.daemon_failure_backoff_seconds == 120
+    assert cfg.daemon_max_consecutive_failures == 10
 
 
 
