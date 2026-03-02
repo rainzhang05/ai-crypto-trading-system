@@ -208,7 +208,8 @@ def main() -> int:
 
         if args.command == "bootstrap-backfill":
             end_ts = args.end_ts_utc or datetime.now(tz=timezone.utc)
-            start_ts = args.start_ts_utc or (end_ts - timedelta(days=365 * 5))
+            lookback_days = int(getattr(getattr(daemon, "_config", None), "bootstrap_lookback_days", 7000))
+            start_ts = args.start_ts_utc or (end_ts - timedelta(days=lookback_days))
             daemon.acquire_exclusive_lock()
             try:
                 daemon.run_bootstrap_backfill(start_ts_utc=start_ts, end_ts_utc=end_ts)
@@ -229,7 +230,7 @@ def main() -> int:
         if args.command == "train-now":
             daemon.acquire_exclusive_lock()
             try:
-                daemon.run_training(cycle_kind="MANUAL")
+                daemon.run_manual_training_with_data_refresh()
             finally:
                 daemon.release_exclusive_lock()
             conn.commit()

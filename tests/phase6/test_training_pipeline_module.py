@@ -203,3 +203,26 @@ def test_run_training_cycle_failure_logs_failed_completion(monkeypatch: pytest.M
 
     statuses = [params.get("status") for _sql, params in db.executed if "status" in params]
     assert "FAILED" in statuses
+
+
+def test_run_training_cycle_disk_guard_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = FakeDB()
+    _stub_cycle_dependencies(monkeypatch, tmp_path / "disk", approved=True)
+    with pytest.raises(RuntimeError, match="Insufficient free disk space"):
+        training_pipeline.run_training_cycle(
+            db=db,
+            symbols=("BTC",),
+            local_cache_dir=tmp_path,
+            output_root=tmp_path / "out-disk",
+            account_id=1,
+            cost_profile_id=1,
+            strategy_code_sha="a" * 40,
+            config_hash="cfg",
+            universe_hash="univ",
+            random_seed=7,
+            cycle_kind="MANUAL",
+            min_free_disk_bytes=10**18,
+        )
+
+    statuses = [params.get("status") for _sql, params in db.executed if "status" in params]
+    assert "FAILED" in statuses

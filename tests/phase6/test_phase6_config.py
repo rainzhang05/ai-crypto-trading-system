@@ -38,6 +38,7 @@ def test_load_phase6_config_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.console_log_enabled is True
     assert cfg.ingestion_loop_seconds == 60
     assert cfg.bootstrap_lookback_days == 7000
+    assert cfg.min_free_disk_gb == 5.0
     assert cfg.adaptive_trade_poll_zero_streak == 3
     assert cfg.adaptive_trade_poll_interval_minutes == 5
     assert cfg.force_local_data_for_training is True

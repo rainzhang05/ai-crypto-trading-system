@@ -42,6 +42,7 @@ def _config(local_cache_dir: Path, **overrides) -> Phase6Config:  # type: ignore
         retrain_hour_utc=0,
         bootstrap_lookback_days=3650,
         api_budget_per_minute=10,
+        min_free_disk_gb=0.0,
         adaptive_trade_poll_zero_streak=3,
         adaptive_trade_poll_interval_minutes=5,
         drift_accuracy_drop_pp=5.0,
@@ -507,6 +508,29 @@ def test_run_once_cycle_branch_paths(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert calls_disabled == ["sync", "repair"]
 
 
+def test_manual_training_with_data_refresh_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _config(tmp_path, min_free_disk_gb=0.0, bootstrap_lookback_days=30)
+    d = _daemon(FakeDB(), local_cache_dir=tmp_path, cfg=cfg, now_hour=1)
+    calls: list[str] = []
+    monkeypatch.setattr(d, "bootstrap_complete", lambda: False)
+    monkeypatch.setattr(d, "run_bootstrap_backfill", lambda **_kwargs: calls.append("bootstrap"))
+    monkeypatch.setattr(d, "run_incremental_sync", lambda: calls.append("sync"))
+    monkeypatch.setattr(d, "run_gap_repair", lambda: calls.append("repair"))
+    monkeypatch.setattr(d, "run_training", lambda cycle_kind="": calls.append(f"train:{cycle_kind}"))
+    d.run_manual_training_with_data_refresh()
+    assert calls == ["bootstrap", "sync", "repair", "train:MANUAL"]
+
+    d2 = _daemon(FakeDB(), local_cache_dir=tmp_path / "done", cfg=cfg, now_hour=1)
+    calls2: list[str] = []
+    monkeypatch.setattr(d2, "bootstrap_complete", lambda: True)
+    monkeypatch.setattr(d2, "run_bootstrap_backfill", lambda **_kwargs: calls2.append("bootstrap"))
+    monkeypatch.setattr(d2, "run_incremental_sync", lambda: calls2.append("sync"))
+    monkeypatch.setattr(d2, "run_gap_repair", lambda: calls2.append("repair"))
+    monkeypatch.setattr(d2, "run_training", lambda cycle_kind="": calls2.append(f"train:{cycle_kind}"))
+    d2.run_manual_training_with_data_refresh()
+    assert calls2 == ["sync", "repair", "train:MANUAL"]
+
+
 def test_console_and_provider_call_count_paths(tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = _config(tmp_path / "console", console_log_enabled=True)
     d = _daemon(FakeDB(), local_cache_dir=tmp_path / "console", cfg=cfg)
@@ -546,3 +570,11 @@ def test_run_incremental_sync_without_provider_call_counter(tmp_path: Path, monk
         ),
     )
     d.run_incremental_sync()
+
+
+def test_resource_guard_failures_stop_stage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _config(tmp_path / "guard", min_free_disk_gb=5.0)
+    d = _daemon(FakeDB(), local_cache_dir=tmp_path / "guard", cfg=cfg)
+    monkeypatch.setattr("execution.phase6.autonomy_daemon.shutil.disk_usage", lambda _p: SimpleNamespace(free=1024))
+    with pytest.raises(RuntimeError, match="Insufficient free disk space"):
+        d.run_incremental_sync()

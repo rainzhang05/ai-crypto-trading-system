@@ -214,6 +214,7 @@ def test_main_command_paths(command: str, expected: int, monkeypatch: pytest.Mon
         run_bootstrap_backfill=lambda **_kwargs: None,
         run_incremental_sync=lambda: None,
         run_training=lambda cycle_kind="": None,
+        run_manual_training_with_data_refresh=lambda: None,
         run_gap_repair=lambda: None,
         run_once=lambda: None,
         daemon_loop=lambda max_cycles=None: None,

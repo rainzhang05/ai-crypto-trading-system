@@ -9,6 +9,7 @@ import json
 import math
 import os
 from pathlib import Path
+import shutil
 import socket
 import time
 from typing import Any, Mapping, Sequence
@@ -76,6 +77,24 @@ class Phase6AutonomyDaemon:
         if isinstance(value, int):
             return value
         return None
+
+    def _min_free_disk_bytes(self) -> int:
+        min_free_gb = max(0.0, float(self._config.min_free_disk_gb))
+        return int(min_free_gb * (1024**3))
+
+    def _assert_min_free_disk(self, *, stage: str) -> None:
+        required_bytes = self._min_free_disk_bytes()
+        target_path = self._config.local_data_cache_dir
+        ensure_dir(target_path)
+        free_bytes = shutil.disk_usage(target_path).free
+        if free_bytes < required_bytes:
+            free_gb = free_bytes / float(1024**3)
+            required_gb = required_bytes / float(1024**3)
+            details = f"stage={stage},free_gb={free_gb:.2f},required_gb={required_gb:.2f}"
+            self._log_event("RESOURCE_GUARD", "FAILED", details)
+            raise RuntimeError(
+                f"Insufficient free disk space for Phase 6 at stage={stage} ({free_gb:.2f}GB < {required_gb:.2f}GB)"
+            )
 
     @staticmethod
     def _to_decimal(value: Any) -> Decimal:
@@ -242,6 +261,7 @@ class Phase6AutonomyDaemon:
 
     def run_bootstrap_backfill(self, *, start_ts_utc: datetime, end_ts_utc: datetime) -> None:
         """Run mandatory strict bootstrap backfill."""
+        self._assert_min_free_disk(stage="BOOTSTRAP_START")
         self._log_event("BOOTSTRAP", "STARTED", f"window={start_ts_utc.isoformat()}..{end_ts_utc.isoformat()}")
         try:
             result = run_bootstrap_backfill(
@@ -270,6 +290,7 @@ class Phase6AutonomyDaemon:
 
     def run_incremental_sync(self) -> None:
         """Run one incremental ingestion cycle."""
+        self._assert_min_free_disk(stage="INGESTION_START")
         now_utc = self._clock.now_utc()
         self._log_event("INGESTION", "STARTED", now_utc.isoformat())
         calls_before = self._provider_call_count()
@@ -303,6 +324,7 @@ class Phase6AutonomyDaemon:
 
     def run_gap_repair(self) -> None:
         """Run pending gap repairs."""
+        self._assert_min_free_disk(stage="GAP_REPAIR_START")
         self._log_event("GAP_REPAIR", "STARTED", "pending")
         try:
             result = repair_pending_gaps(
@@ -324,6 +346,7 @@ class Phase6AutonomyDaemon:
         if self._config.force_local_data_for_training and self._config.allow_provider_calls_during_training:
             raise RuntimeError("Invalid config: local-only training cannot allow provider calls")
 
+        self._assert_min_free_disk(stage=f"TRAINING_START_{cycle_kind}")
         self._log_event("TRAINING", "STARTED", f"cycle_kind={cycle_kind}")
         try:
             training_result = run_training_cycle(
@@ -338,6 +361,8 @@ class Phase6AutonomyDaemon:
                 universe_hash=stable_hash(("phase6_universe", *self._symbols)),
                 random_seed=7,
                 cycle_kind=cycle_kind,
+                min_free_disk_bytes=self._min_free_disk_bytes(),
+                progress_logger=self._console_log,
             )
         except Exception as exc:
             self._log_event("TRAINING", "FAILED", f"cycle_kind={cycle_kind},error={type(exc).__name__}:{exc}")
@@ -352,6 +377,24 @@ class Phase6AutonomyDaemon:
                 f"candidate_hash={training_result.candidate_model_set_hash}"
             ),
         )
+
+    def run_manual_training_with_data_refresh(self) -> None:
+        """Run manual full flow: bootstrap if needed, sync, repair, then train."""
+        if not self.bootstrap_complete():
+            end_ts = self._clock.now_utc().astimezone(timezone.utc)
+            start_ts = end_ts - timedelta(days=self._config.bootstrap_lookback_days)
+            self._log_event(
+                "TRAIN_NOW",
+                "BOOTSTRAP_REQUIRED",
+                f"start_ts={start_ts.isoformat()},end_ts={end_ts.isoformat()}",
+            )
+            self.run_bootstrap_backfill(start_ts_utc=start_ts, end_ts_utc=end_ts)
+        else:
+            self._log_event("TRAIN_NOW", "BOOTSTRAP_SKIPPED", "bootstrap_complete=true")
+
+        self.run_incremental_sync()
+        self.run_gap_repair()
+        self.run_training(cycle_kind="MANUAL")
 
     def _scheduled_training_already_ran_today(self, now_utc: datetime) -> bool:
         day_start = now_utc.replace(hour=0, minute=0, second=0, microsecond=0)

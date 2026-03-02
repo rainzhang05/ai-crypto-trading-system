@@ -5,8 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+import gc
 from pathlib import Path
-from typing import Sequence
+import shutil
+from typing import Callable, Sequence
 
 from execution.decision_engine import stable_hash
 from execution.phase6.backtest_orchestrator import run_phase6b_backtest
@@ -32,6 +34,22 @@ class TrainingCycleResult:
     approved: bool
     reason_code: str
     candidate_model_set_hash: str
+
+
+def _noop_progress_logger(_message: str) -> None:
+    return
+
+
+def _assert_min_free_disk(*, path: Path, min_free_bytes: int, stage: str) -> None:
+    target_path = path if path.exists() else path.parent
+    target_path.mkdir(parents=True, exist_ok=True)
+    free_bytes = shutil.disk_usage(target_path).free
+    if free_bytes < min_free_bytes:
+        free_gb = free_bytes / float(1024**3)
+        required_gb = min_free_bytes / float(1024**3)
+        raise RuntimeError(
+            f"Insufficient free disk space at stage={stage} ({free_gb:.2f}GB < {required_gb:.2f}GB required)"
+        )
 
 
 
@@ -91,6 +109,8 @@ def run_training_cycle(
     universe_hash: str,
     random_seed: int,
     cycle_kind: str,
+    min_free_disk_bytes: int = 0,
+    progress_logger: Callable[[str], None] = _noop_progress_logger,
 ) -> TrainingCycleResult:
     """Run one end-to-end deterministic training cycle."""
     try:
@@ -101,6 +121,9 @@ def run_training_cycle(
     cycle_id, _started = _create_training_cycle(db, cycle_kind=cycle_kind)
 
     try:
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=PRECHECK")
+        _assert_min_free_disk(path=local_cache_dir, min_free_bytes=max(min_free_disk_bytes, 0), stage="PRECHECK")
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=DATASET_MATERIALIZE")
         dataset_result = materialize_tick_canonical_dataset(
             db=db,
             local_cache_dir=local_cache_dir,
@@ -108,15 +131,27 @@ def run_training_cycle(
             output_dir=output_root / "datasets",
             generated_at_utc=datetime.now(tz=timezone.utc),
         )
+        _assert_min_free_disk(path=output_root, min_free_bytes=max(min_free_disk_bytes, 0), stage="POST_DATASET")
 
         dataset_frame = pd.read_parquet(dataset_result.output_path)
         features = build_tick_features(dataset_frame)
         labels = build_horizon_labels(features.frame)
+        del dataset_frame
+        gc.collect()
+        progress_logger(
+            f"TRAINING_STAGE cycle_id={cycle_id} stage=FEATURES_READY dataset_snapshot_id={dataset_result.dataset_snapshot_id}"
+        )
 
         model_dir = output_root / "models" / cycle_id
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=TREE_TRAIN")
         trees = train_tree_specialists(labeled_frame=labels.frame, symbols=symbols, output_dir=model_dir / "trees", seed=random_seed)
+        _assert_min_free_disk(path=output_root, min_free_bytes=max(min_free_disk_bytes, 0), stage="POST_TREE")
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=DEEP_TRAIN")
         deeps = train_deep_specialists(labeled_frame=labels.frame, symbols=symbols, output_dir=model_dir / "deep", seed=random_seed)
+        _assert_min_free_disk(path=output_root, min_free_bytes=max(min_free_disk_bytes, 0), stage="POST_DEEP")
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=REGIME_TRAIN")
         regime = train_regime_classifier(labeled_frame=labels.frame, output_dir=model_dir / "regime", seed=random_seed)
+        _assert_min_free_disk(path=output_root, min_free_bytes=max(min_free_disk_bytes, 0), stage="POST_REGIME")
 
         oof = pd.DataFrame(
             {
@@ -126,8 +161,13 @@ def run_training_cycle(
                 "target": labels.frame["label_ret_H1"].astype(float),
             }
         )
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=META_TRAIN")
         meta = train_meta_ensemble(oof_frame=oof, output_dir=model_dir / "meta", seed=random_seed)
+        del oof
+        gc.collect()
+        _assert_min_free_disk(path=output_root, min_free_bytes=max(min_free_disk_bytes, 0), stage="POST_META")
 
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=BACKTEST")
         folds = generate_walk_forward_folds(
             start_utc=labels.frame["trade_ts_utc"].min().to_pydatetime(),
             end_utc=labels.frame["trade_ts_utc"].max().to_pydatetime(),
@@ -148,6 +188,7 @@ def run_training_cycle(
             random_seed=random_seed,
         )
 
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=METRICS")
         metric_frame = pd.DataFrame(
             {
                 "prob": (labels.frame["label_ret_H1"].astype(float) > 0).astype(float),
@@ -197,6 +238,7 @@ def run_training_cycle(
             decision=decision,
             metrics=promotion_metrics,
         )
+        _assert_min_free_disk(path=output_root, min_free_bytes=max(min_free_disk_bytes, 0), stage="PRE_PERSIST_RUN")
 
         db.execute(
             """
@@ -231,6 +273,9 @@ def run_training_cycle(
             status="COMPLETED" if decision.approved else "REJECTED",
             detail_tokens=(dataset_result.dataset_hash, candidate_hash, decision.reason_code, len(trees), len(deeps)),
         )
+        progress_logger(
+            f"TRAINING_STAGE cycle_id={cycle_id} stage=COMPLETED approved={int(decision.approved)} reason={decision.reason_code}"
+        )
 
         return TrainingCycleResult(
             training_cycle_id=cycle_id,
@@ -240,6 +285,7 @@ def run_training_cycle(
             candidate_model_set_hash=candidate_hash,
         )
     except Exception as exc:
+        progress_logger(f"TRAINING_STAGE cycle_id={cycle_id} stage=FAILED error={type(exc).__name__}:{exc}")
         _complete_training_cycle(
             db,
             cycle_id=cycle_id,

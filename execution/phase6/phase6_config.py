@@ -29,6 +29,7 @@ class Phase6Config:
     retrain_hour_utc: int
     bootstrap_lookback_days: int
     api_budget_per_minute: int
+    min_free_disk_gb: float
     adaptive_trade_poll_zero_streak: int
     adaptive_trade_poll_interval_minutes: int
     drift_accuracy_drop_pp: float
@@ -127,6 +128,7 @@ def load_phase6_config() -> Phase6Config:
         retrain_hour_utc=_read_int("PHASE6_RETRAIN_HOUR_UTC", 0),
         bootstrap_lookback_days=_read_int("PHASE6_BOOTSTRAP_LOOKBACK_DAYS", 7000),
         api_budget_per_minute=_read_int("PHASE6_API_BUDGET_PER_MINUTE", 120),
+        min_free_disk_gb=_read_float("PHASE6_MIN_FREE_DISK_GB", 5.0),
         adaptive_trade_poll_zero_streak=_read_int("PHASE6_ADAPTIVE_TRADE_POLL_ZERO_STREAK", 3),
         adaptive_trade_poll_interval_minutes=_read_int("PHASE6_ADAPTIVE_TRADE_POLL_INTERVAL_MINUTES", 5),
         drift_accuracy_drop_pp=_read_float("PHASE6_DRIFT_ACCURACY_DROP_PP", 5.0),
