@@ -39,6 +39,8 @@ class _FakeDB:
             return list(self.payload.get("cluster_exposure_hourly_state", []))
         if "from cash_ledger" in q:
             return list(self.payload.get("cash_ledger", []))
+        if "from backtest_run" in q:
+            return list(self.payload.get("backtest_run", []))
         if "from model_training_window" in q:
             rows = list(self.payload.get("model_training_window", []))
             if "where training_window_id" in q:
@@ -150,6 +152,7 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "hour_ts_utc": hour,
                 "source_run_id": run_id,
                 "portfolio_value": Decimal("10000"),
+                "peak_portfolio_value": Decimal("10000"),
                 "drawdown_pct": Decimal("0.0100000000"),
                 "drawdown_tier": "NORMAL",
                 "base_risk_fraction": Decimal("0.0200000000"),
@@ -158,6 +161,8 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "max_cluster_exposure_pct": Decimal("0.08"),
                 "halt_new_entries": False,
                 "kill_switch_active": False,
+                "kill_switch_reason": None,
+                "requires_manual_review": False,
                 "state_hash": "2" * 64,
                 "row_hash": "r" * 64,
             }
@@ -169,9 +174,14 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "hour_ts_utc": hour,
                 "source_run_id": run_id,
                 "cash_balance": Decimal("10000"),
+                "market_value": Decimal("100"),
                 "portfolio_value": Decimal("10000"),
+                "peak_portfolio_value": Decimal("10000"),
+                "drawdown_pct": Decimal("0.0100000000"),
                 "total_exposure_pct": Decimal("0.01"),
                 "open_position_count": 1,
+                "halted": False,
+                "reconciliation_hash": "q" * 64,
                 "row_hash": "3" * 64,
             }
         ],
@@ -182,6 +192,7 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "cluster_id": 9,
                 "hour_ts_utc": hour,
                 "source_run_id": run_id,
+                "gross_exposure_notional": Decimal("100"),
                 "exposure_pct": Decimal("0.01"),
                 "max_cluster_exposure_pct": Decimal("0.08"),
                 "state_hash": "4" * 64,
@@ -1210,3 +1221,98 @@ def test_context_missing_asset_precision_or_open_fill_abort() -> None:
             run_mode="LIVE",
             hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
         )
+
+
+def test_prior_state_loaders_and_backtest_initial_capital_loader() -> None:
+    payload = _live_payload()
+    hour = payload["run_context"][0]["origin_hour_ts_utc"]
+    prior_hour = hour - timedelta(hours=1)
+    prior_run = UUID("22222222-2222-4222-8222-222222222222")
+    payload["portfolio_hourly_state"].insert(
+        0,
+        {
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "hour_ts_utc": prior_hour,
+            "source_run_id": prior_run,
+            "cash_balance": Decimal("10000"),
+            "market_value": Decimal("100"),
+            "portfolio_value": Decimal("10100"),
+            "peak_portfolio_value": Decimal("10100"),
+            "drawdown_pct": Decimal("0.0000000000"),
+            "total_exposure_pct": Decimal("0.0100000000"),
+            "open_position_count": 1,
+            "halted": False,
+            "reconciliation_hash": "1" * 64,
+            "row_hash": "2" * 64,
+        }
+    )
+    payload["risk_hourly_state"].insert(
+        0,
+        {
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "hour_ts_utc": prior_hour,
+            "source_run_id": prior_run,
+            "portfolio_value": Decimal("10100"),
+            "peak_portfolio_value": Decimal("10100"),
+            "drawdown_pct": Decimal("0.0000000000"),
+            "drawdown_tier": "NORMAL",
+            "base_risk_fraction": Decimal("0.0200000000"),
+            "max_concurrent_positions": 10,
+            "max_total_exposure_pct": Decimal("0.2000000000"),
+            "max_cluster_exposure_pct": Decimal("0.0800000000"),
+            "halt_new_entries": False,
+            "kill_switch_active": False,
+            "kill_switch_reason": None,
+            "requires_manual_review": False,
+            "state_hash": "3" * 64,
+            "row_hash": "4" * 64,
+        }
+    )
+    payload["cluster_exposure_hourly_state"].insert(
+        0,
+        {
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "cluster_id": 9,
+            "hour_ts_utc": prior_hour,
+            "source_run_id": prior_run,
+            "gross_exposure_notional": Decimal("100"),
+            "exposure_pct": Decimal("0.0100000000"),
+            "max_cluster_exposure_pct": Decimal("0.0800000000"),
+            "state_hash": "5" * 64,
+            "parent_risk_hash": "4" * 64,
+            "row_hash": "6" * 64,
+        }
+    )
+    payload["backtest_run"] = [
+        {
+            "backtest_run_id": UUID("33333333-3333-4333-8333-333333333333"),
+            "initial_capital": Decimal("12345.000000000000000000"),
+        }
+    ]
+
+    builder = DeterministicContextBuilder(_FakeDB(payload))
+    prior_portfolio = builder.load_prior_portfolio_state(1, "LIVE", hour)
+    assert prior_portfolio is not None
+    assert prior_portfolio.source_run_id == prior_run
+
+    prior_risk = builder.load_prior_risk_state(1, "LIVE", hour)
+    assert prior_risk is not None
+    assert prior_risk.source_run_id == prior_run
+
+    prior_clusters = builder.load_prior_cluster_states(1, "LIVE", hour)
+    assert 9 in prior_clusters
+
+    initial_capital = builder.load_backtest_initial_capital(
+        UUID("33333333-3333-4333-8333-333333333333")
+    )
+    assert initial_capital == Decimal("12345.000000000000000000")
+
+
+def test_load_backtest_initial_capital_missing_row_aborts() -> None:
+    payload = _live_payload()
+    builder = DeterministicContextBuilder(_FakeDB(payload))
+    with pytest.raises(DeterministicAbortError, match="backtest_run row not found"):
+        builder.load_backtest_initial_capital(UUID("44444444-4444-4444-8444-444444444444"))

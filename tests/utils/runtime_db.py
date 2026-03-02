@@ -124,6 +124,7 @@ def insert_runtime_fixture(
     order_book_best_bid_size: Decimal = Decimal("1000000.000000000000000000"),
     order_book_best_ask_size: Decimal = Decimal("1000000.000000000000000000"),
     ohlcv_close_price: Decimal = Decimal("100.000000000000000000"),
+    preseed_current_phase5: bool = False,
 ) -> FixtureIds:
     """
     Insert deterministic minimal fixture rows required by Phase 1D runtime.
@@ -131,9 +132,11 @@ def insert_runtime_fixture(
     The inserted data is deterministic and self-contained for one run/account/hour.
     """
     run_id = deterministic_uuid(f"run-{seed}")
+    bootstrap_run_id = deterministic_uuid(f"bootstrap-run-{seed}")
     backtest_run_id = deterministic_uuid(f"backtest-{seed}")
     hour_offset = deterministic_uuid(f"hour-{seed}").int % 5000
     hour = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc) + timedelta(hours=hour_offset)
+    bootstrap_hour = hour - timedelta(hours=1)
     seed_suffix = deterministic_uuid(f"suffix-{seed}").hex[:8].upper()
 
     account_code = f"ACC_{seed.upper()}"
@@ -285,7 +288,7 @@ def insert_runtime_fixture(
             run_seed_hash, context_hash, replay_root_hash
         ) VALUES (
             :run_id, :account_id, :run_mode, :hour_ts_utc, 1, :code_version_sha,
-            :config_hash, :data_snapshot_hash, 7, NULL,
+            :config_hash, :data_snapshot_hash, 7, :backtest_run_id,
             :started_at_utc, :completed_at_utc, 'COMPLETED', :origin_hour_ts_utc,
             :run_seed_hash, :context_hash, :replay_root_hash
         )
@@ -298,9 +301,42 @@ def insert_runtime_fixture(
             "code_version_sha": "a" * 40,
             "config_hash": "b" * 64,
             "data_snapshot_hash": "c" * 64,
+            "backtest_run_id": str(backtest_run_id) if run_mode == "BACKTEST" else None,
             "started_at_utc": hour - timedelta(minutes=5),
             "completed_at_utc": hour,
             "origin_hour_ts_utc": hour,
+            "run_seed_hash": "d" * 64,
+            "context_hash": "e" * 64,
+            "replay_root_hash": "f" * 64,
+        },
+    )
+
+    db.execute(
+        """
+        INSERT INTO run_context (
+            run_id, account_id, run_mode, hour_ts_utc, cycle_seq, code_version_sha,
+            config_hash, data_snapshot_hash, random_seed, backtest_run_id,
+            started_at_utc, completed_at_utc, status, origin_hour_ts_utc,
+            run_seed_hash, context_hash, replay_root_hash
+        ) VALUES (
+            :run_id, :account_id, :run_mode, :hour_ts_utc, 0, :code_version_sha,
+            :config_hash, :data_snapshot_hash, 11, :backtest_run_id,
+            :started_at_utc, :completed_at_utc, 'COMPLETED', :origin_hour_ts_utc,
+            :run_seed_hash, :context_hash, :replay_root_hash
+        )
+        """,
+        {
+            "run_id": str(bootstrap_run_id),
+            "account_id": account_id,
+            "run_mode": run_mode,
+            "hour_ts_utc": bootstrap_hour,
+            "code_version_sha": "a" * 40,
+            "config_hash": "b" * 64,
+            "data_snapshot_hash": "c" * 64,
+            "backtest_run_id": str(backtest_run_id) if run_mode == "BACKTEST" else None,
+            "started_at_utc": bootstrap_hour - timedelta(minutes=5),
+            "completed_at_utc": bootstrap_hour,
+            "origin_hour_ts_utc": bootstrap_hour,
             "run_seed_hash": "d" * 64,
             "context_hash": "e" * 64,
             "replay_root_hash": "f" * 64,
@@ -386,27 +422,39 @@ def insert_runtime_fixture(
             "generated_at_utc": hour,
         },
     )
-
     db.execute(
         """
-        INSERT INTO portfolio_hourly_state (
-            run_mode, account_id, hour_ts_utc, cash_balance, market_value, portfolio_value,
-            peak_portfolio_value, drawdown_pct, total_exposure_pct, open_position_count,
-            halted, source_run_id, reconciliation_hash, row_hash
+        INSERT INTO replay_manifest (
+            run_id, account_id, run_mode, origin_hour_ts_utc,
+            run_seed_hash, replay_root_hash, authoritative_row_count, generated_at_utc
         ) VALUES (
-            :run_mode, :account_id, :hour_ts_utc, 10000.000000000000000000,
-            0.000000000000000000, 10000.000000000000000000, 10000.000000000000000000,
-            0.0000000000, 0.0100000000, 1, FALSE, :source_run_id, :reconciliation_hash, :row_hash
+            :run_id, :account_id, :run_mode, :origin_hour_ts_utc,
+            :run_seed_hash, :replay_root_hash, :authoritative_row_count, :generated_at_utc
         )
         """,
         {
-            "run_mode": run_mode,
+            "run_id": str(bootstrap_run_id),
             "account_id": account_id,
-            "hour_ts_utc": hour,
-            "source_run_id": str(run_id),
-            "reconciliation_hash": "g" * 64,
-            "row_hash": "h" * 64,
+            "run_mode": run_mode,
+            "origin_hour_ts_utc": bootstrap_hour,
+            "run_seed_hash": "d" * 64,
+            "replay_root_hash": "f" * 64,
+            "authoritative_row_count": 0,
+            "generated_at_utc": bootstrap_hour,
         },
+    )
+
+    position_mark_price = Decimal("100.000000000000000000")
+    position_quantity = (
+        (
+            Decimal("10000.000000000000000000")
+            * cluster_exposure_pct
+            / (Decimal("1") - cluster_exposure_pct)
+        )
+        / position_mark_price
+    ).quantize(Decimal("0.000000000000000001"))
+    position_market_value = (position_quantity * position_mark_price).quantize(
+        Decimal("0.000000000000000001")
     )
 
     db.execute(
@@ -415,9 +463,9 @@ def insert_runtime_fixture(
             run_mode, account_id, asset_id, hour_ts_utc, quantity, avg_cost, mark_price,
             market_value, unrealized_pnl, realized_pnl_cum, exposure_pct, source_run_id, row_hash
         ) VALUES (
-            :run_mode, :account_id, :asset_id, :hour_ts_utc, 1.000000000000000000, 100.000000000000000000,
-            100.000000000000000000, 100.000000000000000000, 0.000000000000000000,
-            0.000000000000000000, 0.0100000000, :source_run_id, :row_hash
+            :run_mode, :account_id, :asset_id, :hour_ts_utc, :quantity, :avg_cost, :mark_price,
+            :market_value, 0.000000000000000000,
+            0.000000000000000000, :exposure_pct, :source_run_id, :row_hash
         )
         """,
         {
@@ -425,37 +473,38 @@ def insert_runtime_fixture(
             "account_id": account_id,
             "asset_id": asset_id,
             "hour_ts_utc": hour,
+            "quantity": position_quantity,
+            "avg_cost": position_mark_price,
+            "mark_price": position_mark_price,
+            "market_value": position_market_value,
+            "exposure_pct": cluster_exposure_pct,
             "source_run_id": str(run_id),
             "row_hash": "x" * 64,
         },
     )
-
     db.execute(
         """
-        INSERT INTO risk_hourly_state (
-            run_mode, account_id, hour_ts_utc, portfolio_value, peak_portfolio_value,
-            drawdown_pct, drawdown_tier, base_risk_fraction, max_concurrent_positions,
-            max_total_exposure_pct, max_cluster_exposure_pct, halt_new_entries,
-            kill_switch_active, kill_switch_reason, requires_manual_review,
-            evaluated_at_utc, source_run_id, state_hash, row_hash
+        INSERT INTO position_hourly_state (
+            run_mode, account_id, asset_id, hour_ts_utc, quantity, avg_cost, mark_price,
+            market_value, unrealized_pnl, realized_pnl_cum, exposure_pct, source_run_id, row_hash
         ) VALUES (
-            :run_mode, :account_id, :hour_ts_utc, 10000.000000000000000000,
-            10000.000000000000000000, 0.0000000000, 'NORMAL', 0.0200000000, 10,
-            0.2000000000, 0.0800000000, :halt_new_entries, :kill_switch_active,
-            :kill_switch_reason, FALSE, :evaluated_at_utc, :source_run_id, :state_hash, :row_hash
+            :run_mode, :account_id, :asset_id, :hour_ts_utc, :quantity, :avg_cost, :mark_price,
+            :market_value, 0.000000000000000000,
+            0.000000000000000000, :exposure_pct, :source_run_id, :row_hash
         )
         """,
         {
             "run_mode": run_mode,
             "account_id": account_id,
-            "hour_ts_utc": hour,
-            "halt_new_entries": halt_new_entries,
-            "kill_switch_active": kill_switch_active,
-            "kill_switch_reason": "TEST_KILL" if kill_switch_active else None,
-            "evaluated_at_utc": hour,
-            "source_run_id": str(run_id),
-            "state_hash": "i" * 64,
-            "row_hash": risk_row_hash,
+            "asset_id": asset_id,
+            "hour_ts_utc": bootstrap_hour,
+            "quantity": position_quantity,
+            "avg_cost": position_mark_price,
+            "mark_price": position_mark_price,
+            "market_value": position_market_value,
+            "exposure_pct": cluster_exposure_pct,
+            "source_run_id": str(bootstrap_run_id),
+            "row_hash": "w" * 64,
         },
     )
 
@@ -494,6 +543,72 @@ def insert_runtime_fixture(
         raise RuntimeError("Failed to insert asset_cluster_membership fixture.")
     membership_id = int(membership_row["membership_id"])
 
+    bootstrap_cash = Decimal("10000.000000000000000000")
+    bootstrap_market_value = (
+        bootstrap_cash * cluster_exposure_pct / (Decimal("1") - cluster_exposure_pct)
+    ).quantize(Decimal("0.000000000000000001"))
+    bootstrap_portfolio_value = (bootstrap_cash + bootstrap_market_value).quantize(
+        Decimal("0.000000000000000001")
+    )
+
+    db.execute(
+        """
+        INSERT INTO portfolio_hourly_state (
+            run_mode, account_id, hour_ts_utc, cash_balance, market_value, portfolio_value,
+            peak_portfolio_value, drawdown_pct, total_exposure_pct, open_position_count,
+            halted, source_run_id, reconciliation_hash, row_hash
+        ) VALUES (
+            :run_mode, :account_id, :hour_ts_utc, :cash_balance, :market_value, :portfolio_value,
+            :peak_portfolio_value, 0.0000000000, :total_exposure_pct, 1,
+            FALSE, :source_run_id, :reconciliation_hash, :row_hash
+        )
+        """,
+        {
+            "run_mode": run_mode,
+            "account_id": account_id,
+            "hour_ts_utc": bootstrap_hour,
+            "cash_balance": bootstrap_cash,
+            "market_value": bootstrap_market_value,
+            "portfolio_value": bootstrap_portfolio_value,
+            "peak_portfolio_value": bootstrap_portfolio_value,
+            "total_exposure_pct": cluster_exposure_pct,
+            "source_run_id": str(bootstrap_run_id),
+            "reconciliation_hash": "g" * 64,
+            "row_hash": "h" * 64,
+        },
+    )
+
+    db.execute(
+        """
+        INSERT INTO risk_hourly_state (
+            run_mode, account_id, hour_ts_utc, portfolio_value, peak_portfolio_value,
+            drawdown_pct, drawdown_tier, base_risk_fraction, max_concurrent_positions,
+            max_total_exposure_pct, max_cluster_exposure_pct, halt_new_entries,
+            kill_switch_active, kill_switch_reason, requires_manual_review,
+            evaluated_at_utc, source_run_id, state_hash, row_hash
+        ) VALUES (
+            :run_mode, :account_id, :hour_ts_utc, :portfolio_value,
+            :peak_portfolio_value, 0.0000000000, 'NORMAL', 0.0200000000, 10,
+            0.2000000000, 0.0800000000, :halt_new_entries, :kill_switch_active,
+            :kill_switch_reason, FALSE, :evaluated_at_utc, :source_run_id, :state_hash, :row_hash
+        )
+        """,
+        {
+            "run_mode": run_mode,
+            "account_id": account_id,
+            "hour_ts_utc": bootstrap_hour,
+            "portfolio_value": bootstrap_portfolio_value,
+            "peak_portfolio_value": bootstrap_portfolio_value,
+            "halt_new_entries": halt_new_entries,
+            "kill_switch_active": kill_switch_active,
+            "kill_switch_reason": "TEST_KILL" if kill_switch_active else None,
+            "evaluated_at_utc": bootstrap_hour,
+            "source_run_id": str(bootstrap_run_id),
+            "state_hash": "i" * 64,
+            "row_hash": risk_row_hash,
+        },
+    )
+
     db.execute(
         """
         INSERT INTO cluster_exposure_hourly_state (
@@ -502,7 +617,7 @@ def insert_runtime_fixture(
             state_hash, parent_risk_hash, row_hash
         ) VALUES (
             :run_mode, :account_id, :cluster_id, :hour_ts_utc, :source_run_id,
-            100.000000000000000000, :exposure_pct, 0.0800000000, :state_hash,
+            :gross_exposure_notional, :exposure_pct, 0.0800000000, :state_hash,
             :parent_risk_hash, :row_hash
         )
         """,
@@ -510,14 +625,98 @@ def insert_runtime_fixture(
             "run_mode": run_mode,
             "account_id": account_id,
             "cluster_id": cluster_id,
-            "hour_ts_utc": hour,
-            "source_run_id": str(run_id),
+            "hour_ts_utc": bootstrap_hour,
+            "source_run_id": str(bootstrap_run_id),
+            "gross_exposure_notional": bootstrap_market_value,
             "exposure_pct": cluster_exposure_pct,
             "state_hash": "k" * 64,
             "parent_risk_hash": cluster_parent_hash,
             "row_hash": "l" * 64,
         },
     )
+
+    if preseed_current_phase5:
+        db.execute(
+            """
+            INSERT INTO portfolio_hourly_state (
+                run_mode, account_id, hour_ts_utc, cash_balance, market_value, portfolio_value,
+                peak_portfolio_value, drawdown_pct, total_exposure_pct, open_position_count,
+                halted, source_run_id, reconciliation_hash, row_hash
+            ) VALUES (
+                :run_mode, :account_id, :hour_ts_utc, :cash_balance, :market_value, :portfolio_value,
+                :peak_portfolio_value, 0.0000000000, :total_exposure_pct, 1,
+                FALSE, :source_run_id, :reconciliation_hash, :row_hash
+            )
+            """,
+            {
+                "run_mode": run_mode,
+                "account_id": account_id,
+                "hour_ts_utc": hour,
+                "cash_balance": bootstrap_cash,
+                "market_value": bootstrap_market_value,
+                "portfolio_value": bootstrap_portfolio_value,
+                "peak_portfolio_value": bootstrap_portfolio_value,
+                "total_exposure_pct": cluster_exposure_pct,
+                "source_run_id": str(run_id),
+                "reconciliation_hash": "g" * 64,
+                "row_hash": "h" * 64,
+            },
+        )
+        db.execute(
+            """
+            INSERT INTO risk_hourly_state (
+                run_mode, account_id, hour_ts_utc, portfolio_value, peak_portfolio_value,
+                drawdown_pct, drawdown_tier, base_risk_fraction, max_concurrent_positions,
+                max_total_exposure_pct, max_cluster_exposure_pct, halt_new_entries,
+                kill_switch_active, kill_switch_reason, requires_manual_review,
+                evaluated_at_utc, source_run_id, state_hash, row_hash
+            ) VALUES (
+                :run_mode, :account_id, :hour_ts_utc, :portfolio_value,
+                :peak_portfolio_value, 0.0000000000, 'NORMAL', 0.0200000000, 10,
+                0.2000000000, 0.0800000000, :halt_new_entries, :kill_switch_active,
+                :kill_switch_reason, FALSE, :evaluated_at_utc, :source_run_id, :state_hash, :row_hash
+            )
+            """,
+            {
+                "run_mode": run_mode,
+                "account_id": account_id,
+                "hour_ts_utc": hour,
+                "portfolio_value": bootstrap_portfolio_value,
+                "peak_portfolio_value": bootstrap_portfolio_value,
+                "halt_new_entries": halt_new_entries,
+                "kill_switch_active": kill_switch_active,
+                "kill_switch_reason": "TEST_KILL" if kill_switch_active else None,
+                "evaluated_at_utc": hour,
+                "source_run_id": str(run_id),
+                "state_hash": "i" * 64,
+                "row_hash": risk_row_hash,
+            },
+        )
+        db.execute(
+            """
+            INSERT INTO cluster_exposure_hourly_state (
+                run_mode, account_id, cluster_id, hour_ts_utc, source_run_id,
+                gross_exposure_notional, exposure_pct, max_cluster_exposure_pct,
+                state_hash, parent_risk_hash, row_hash
+            ) VALUES (
+                :run_mode, :account_id, :cluster_id, :hour_ts_utc, :source_run_id,
+                :gross_exposure_notional, :exposure_pct, 0.0800000000, :state_hash,
+                :parent_risk_hash, :row_hash
+            )
+            """,
+            {
+                "run_mode": run_mode,
+                "account_id": account_id,
+                "cluster_id": cluster_id,
+                "hour_ts_utc": hour,
+                "source_run_id": str(run_id),
+                "gross_exposure_notional": bootstrap_market_value,
+                "exposure_pct": cluster_exposure_pct,
+                "state_hash": "k" * 64,
+                "parent_risk_hash": cluster_parent_hash,
+                "row_hash": "l" * 64,
+            },
+        )
 
     activation_row = db.fetch_one(
         """
@@ -727,23 +926,24 @@ def preload_open_lot_for_sell_path(
 
     origin_run_context = db.fetch_one(
         """
-        SELECT 1
+        SELECT run_id
         FROM run_context
-        WHERE run_id = :run_id
-          AND account_id = :account_id
+        WHERE account_id = :account_id
           AND run_mode = 'LIVE'
           AND hour_ts_utc = :hour_ts_utc
           AND origin_hour_ts_utc = :origin_hour_ts_utc
+        ORDER BY run_id ASC
         LIMIT 1
         """,
         {
-            "run_id": str(preload_run_id),
             "account_id": fixture.account_id,
             "hour_ts_utc": preload_origin_hour,
             "origin_hour_ts_utc": preload_origin_hour,
         },
     )
-    if origin_run_context is None:
+    if origin_run_context is not None:
+        preload_run_id = UUID(str(origin_run_context["run_id"]))
+    else:
         db.execute(
             """
             INSERT INTO run_context (
@@ -1034,6 +1234,61 @@ def preload_open_lot_for_sell_path(
             "slippage_cost": slippage_cost,
             "parent_order_hash": row_hash_order,
             "row_hash": row_hash_fill,
+        },
+    )
+
+    prior_ledger = db.fetch_one(
+        """
+        SELECT ledger_seq, balance_after, ledger_hash
+        FROM cash_ledger
+        WHERE account_id = :account_id
+          AND run_mode = 'LIVE'
+        ORDER BY ledger_seq DESC
+        LIMIT 1
+        """,
+        {"account_id": fixture.account_id},
+    )
+    if prior_ledger is None:
+        ledger_seq = 1
+        balance_before = Decimal("10000.000000000000000000")
+        prev_ledger_hash = None
+    else:
+        ledger_seq = int(prior_ledger["ledger_seq"]) + 1
+        balance_before = Decimal(str(prior_ledger["balance_after"]))
+        prev_ledger_hash = str(prior_ledger["ledger_hash"])
+
+    delta_cash = -(notional + fee_paid + slippage_cost)
+    balance_after = balance_before + delta_cash
+    economic_event_hash = deterministic_uuid(f"preload-econ-hash-{seed}").hex * 2
+    ledger_hash = deterministic_uuid(f"preload-ledger-hash-{seed}").hex * 2
+    row_hash_ledger = deterministic_uuid(f"preload-ledger-row-{seed}").hex * 2
+    db.execute(
+        """
+        INSERT INTO cash_ledger (
+            run_id, run_mode, account_id, event_ts_utc, hour_ts_utc, event_type, ref_type,
+            ref_id, delta_cash, balance_after, origin_hour_ts_utc, ledger_seq, balance_before,
+            prev_ledger_hash, economic_event_hash, ledger_hash, row_hash
+        ) VALUES (
+            :run_id, 'LIVE', :account_id, :event_ts_utc, :hour_ts_utc, 'ORDER_FILL_SETTLEMENT', 'ORDER_FILL',
+            :ref_id, :delta_cash, :balance_after, :origin_hour_ts_utc, :ledger_seq, :balance_before,
+            :prev_ledger_hash, :economic_event_hash, :ledger_hash, :row_hash
+        )
+        """,
+        {
+            "run_id": str(preload_run_id),
+            "account_id": fixture.account_id,
+            "event_ts_utc": preload_origin_hour,
+            "hour_ts_utc": preload_origin_hour,
+            "ref_id": str(fill_id),
+            "delta_cash": delta_cash,
+            "balance_after": balance_after,
+            "origin_hour_ts_utc": preload_origin_hour,
+            "ledger_seq": ledger_seq,
+            "balance_before": balance_before,
+            "prev_ledger_hash": prev_ledger_hash,
+            "economic_event_hash": economic_event_hash,
+            "ledger_hash": ledger_hash,
+            "row_hash": row_hash_ledger,
         },
     )
 

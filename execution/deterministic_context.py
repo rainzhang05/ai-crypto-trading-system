@@ -58,6 +58,7 @@ class RunContextState:
     run_mode: str
     hour_ts_utc: datetime
     origin_hour_ts_utc: datetime
+    backtest_run_id: Optional[UUID]
     run_seed_hash: str
     context_hash: str
     replay_root_hash: str
@@ -170,6 +171,61 @@ class PriorEconomicState:
     ledger_hash: str
     row_hash: str
     event_ts_utc: datetime
+
+
+@dataclass(frozen=True)
+class PriorPortfolioState:
+    run_mode: str
+    account_id: int
+    hour_ts_utc: datetime
+    source_run_id: UUID
+    cash_balance: Decimal
+    market_value: Decimal
+    portfolio_value: Decimal
+    peak_portfolio_value: Decimal
+    drawdown_pct: Decimal
+    total_exposure_pct: Decimal
+    open_position_count: int
+    halted: bool
+    reconciliation_hash: str
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class PriorRiskState:
+    run_mode: str
+    account_id: int
+    hour_ts_utc: datetime
+    source_run_id: UUID
+    portfolio_value: Decimal
+    peak_portfolio_value: Decimal
+    drawdown_pct: Decimal
+    drawdown_tier: str
+    base_risk_fraction: Decimal
+    max_concurrent_positions: int
+    max_total_exposure_pct: Decimal
+    max_cluster_exposure_pct: Decimal
+    halt_new_entries: bool
+    kill_switch_active: bool
+    kill_switch_reason: Optional[str]
+    requires_manual_review: bool
+    state_hash: str
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class PriorClusterState:
+    run_mode: str
+    account_id: int
+    cluster_id: int
+    hour_ts_utc: datetime
+    source_run_id: UUID
+    gross_exposure_notional: Decimal
+    exposure_pct: Decimal
+    max_cluster_exposure_pct: Decimal
+    state_hash: str
+    parent_risk_hash: str
+    row_hash: str
 
 
 @dataclass(frozen=True)
@@ -494,6 +550,163 @@ class DeterministicContextBuilder:
         self._validate_context(context)
         return context
 
+    def load_prior_ledger_state(
+        self,
+        account_id: int,
+        run_mode: str,
+        hour_ts_utc: datetime,
+    ) -> Optional[PriorEconomicState]:
+        return self._load_prior_economic_state(account_id, run_mode, hour_ts_utc)
+
+    def load_prior_portfolio_state(
+        self,
+        account_id: int,
+        run_mode: str,
+        hour_ts_utc: datetime,
+    ) -> Optional[PriorPortfolioState]:
+        row = self._db.fetch_one(
+            """
+            SELECT run_mode, account_id, hour_ts_utc, source_run_id, cash_balance, market_value,
+                   portfolio_value, peak_portfolio_value, drawdown_pct, total_exposure_pct,
+                   open_position_count, halted, reconciliation_hash, row_hash
+            FROM portfolio_hourly_state
+            WHERE run_mode = :run_mode
+              AND account_id = :account_id
+              AND hour_ts_utc < :hour_ts_utc
+            ORDER BY hour_ts_utc DESC
+            LIMIT 1
+            """,
+            {
+                "run_mode": run_mode,
+                "account_id": account_id,
+                "hour_ts_utc": hour_ts_utc,
+            },
+        )
+        if row is None:
+            return None
+        return PriorPortfolioState(
+            run_mode=str(row["run_mode"]),
+            account_id=int(row["account_id"]),
+            hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
+            source_run_id=_as_uuid(row["source_run_id"]),
+            cash_balance=_as_decimal(row["cash_balance"]),
+            market_value=_as_decimal(row["market_value"]),
+            portfolio_value=_as_decimal(row["portfolio_value"]),
+            peak_portfolio_value=_as_decimal(row["peak_portfolio_value"]),
+            drawdown_pct=_as_decimal(row["drawdown_pct"]),
+            total_exposure_pct=_as_decimal(row["total_exposure_pct"]),
+            open_position_count=int(row["open_position_count"]),
+            halted=bool(row["halted"]),
+            reconciliation_hash=str(row["reconciliation_hash"]),
+            row_hash=str(row["row_hash"]),
+        )
+
+    def load_prior_risk_state(
+        self,
+        account_id: int,
+        run_mode: str,
+        hour_ts_utc: datetime,
+    ) -> Optional[PriorRiskState]:
+        row = self._db.fetch_one(
+            """
+            SELECT run_mode, account_id, hour_ts_utc, source_run_id, portfolio_value,
+                   peak_portfolio_value, drawdown_pct, drawdown_tier, base_risk_fraction,
+                   max_concurrent_positions, max_total_exposure_pct, max_cluster_exposure_pct,
+                   halt_new_entries, kill_switch_active, kill_switch_reason, requires_manual_review,
+                   state_hash, row_hash
+            FROM risk_hourly_state
+            WHERE run_mode = :run_mode
+              AND account_id = :account_id
+              AND hour_ts_utc < :hour_ts_utc
+            ORDER BY hour_ts_utc DESC
+            LIMIT 1
+            """,
+            {
+                "run_mode": run_mode,
+                "account_id": account_id,
+                "hour_ts_utc": hour_ts_utc,
+            },
+        )
+        if row is None:
+            return None
+        return PriorRiskState(
+            run_mode=str(row["run_mode"]),
+            account_id=int(row["account_id"]),
+            hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
+            source_run_id=_as_uuid(row["source_run_id"]),
+            portfolio_value=_as_decimal(row["portfolio_value"]),
+            peak_portfolio_value=_as_decimal(row["peak_portfolio_value"]),
+            drawdown_pct=_as_decimal(row["drawdown_pct"]),
+            drawdown_tier=str(row["drawdown_tier"]),
+            base_risk_fraction=_as_decimal(row["base_risk_fraction"]),
+            max_concurrent_positions=int(row["max_concurrent_positions"]),
+            max_total_exposure_pct=_as_decimal(row["max_total_exposure_pct"]),
+            max_cluster_exposure_pct=_as_decimal(row["max_cluster_exposure_pct"]),
+            halt_new_entries=bool(row["halt_new_entries"]),
+            kill_switch_active=bool(row["kill_switch_active"]),
+            kill_switch_reason=(
+                str(row["kill_switch_reason"]) if row["kill_switch_reason"] is not None else None
+            ),
+            requires_manual_review=bool(row["requires_manual_review"]),
+            state_hash=str(row["state_hash"]),
+            row_hash=str(row["row_hash"]),
+        )
+
+    def load_prior_cluster_states(
+        self,
+        account_id: int,
+        run_mode: str,
+        hour_ts_utc: datetime,
+    ) -> Mapping[int, PriorClusterState]:
+        rows = self._db.fetch_all(
+            """
+            SELECT DISTINCT ON (cluster_id)
+                   run_mode, account_id, cluster_id, hour_ts_utc, source_run_id,
+                   gross_exposure_notional, exposure_pct, max_cluster_exposure_pct,
+                   state_hash, parent_risk_hash, row_hash
+            FROM cluster_exposure_hourly_state
+            WHERE run_mode = :run_mode
+              AND account_id = :account_id
+              AND hour_ts_utc < :hour_ts_utc
+            ORDER BY cluster_id ASC, hour_ts_utc DESC
+            """,
+            {
+                "run_mode": run_mode,
+                "account_id": account_id,
+                "hour_ts_utc": hour_ts_utc,
+            },
+        )
+        result: dict[int, PriorClusterState] = {}
+        for row in rows:
+            cluster_id = int(row["cluster_id"])
+            result[cluster_id] = PriorClusterState(
+                run_mode=str(row["run_mode"]),
+                account_id=int(row["account_id"]),
+                cluster_id=cluster_id,
+                hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
+                source_run_id=_as_uuid(row["source_run_id"]),
+                gross_exposure_notional=_as_decimal(row["gross_exposure_notional"]),
+                exposure_pct=_as_decimal(row["exposure_pct"]),
+                max_cluster_exposure_pct=_as_decimal(row["max_cluster_exposure_pct"]),
+                state_hash=str(row["state_hash"]),
+                parent_risk_hash=str(row["parent_risk_hash"]),
+                row_hash=str(row["row_hash"]),
+            )
+        return result
+
+    def load_backtest_initial_capital(self, backtest_run_id: UUID) -> Decimal:
+        row = self._db.fetch_one(
+            """
+            SELECT initial_capital
+            FROM backtest_run
+            WHERE backtest_run_id = :backtest_run_id
+            """,
+            {"backtest_run_id": str(backtest_run_id)},
+        )
+        if row is None:
+            raise DeterministicAbortError("backtest_run row not found for run_context.backtest_run_id.")
+        return _as_decimal(row["initial_capital"])
+
     def _validate_context(self, context: ExecutionContext) -> None:
         if not context.predictions:
             raise DeterministicAbortError("No model_prediction rows available for execution hour.")
@@ -656,7 +869,7 @@ class DeterministicContextBuilder:
         row = self._db.fetch_one(
             """
             SELECT run_id, account_id, run_mode, hour_ts_utc, origin_hour_ts_utc,
-                   run_seed_hash, context_hash, replay_root_hash
+                   backtest_run_id, run_seed_hash, context_hash, replay_root_hash
             FROM run_context
             WHERE run_id = :run_id
               AND account_id = :account_id
@@ -678,6 +891,11 @@ class DeterministicContextBuilder:
             run_mode=str(row["run_mode"]),
             hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
             origin_hour_ts_utc=_as_datetime(row["origin_hour_ts_utc"]),
+            backtest_run_id=(
+                _as_uuid(row["backtest_run_id"])
+                if row.get("backtest_run_id") is not None
+                else None
+            ),
             run_seed_hash=str(row["run_seed_hash"]),
             context_hash=str(row["context_hash"]),
             replay_root_hash=str(row["replay_root_hash"]),

@@ -199,6 +199,10 @@ def main() -> int:
                 "position_lots": len(result.position_lots),
                 "executed_trades": len(result.executed_trades),
                 "risk_events": len(result.risk_events),
+                "cash_ledger_rows": len(result.cash_ledger_rows),
+                "portfolio_hourly_states": len(result.portfolio_hourly_states),
+                "cluster_exposure_hourly_states": len(result.cluster_exposure_hourly_states),
+                "risk_hourly_states": len(result.risk_hourly_states),
             }
             print(json.dumps(payload, sort_keys=True))
             return 0

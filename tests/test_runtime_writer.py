@@ -534,11 +534,21 @@ def test_writer_builds_deterministic_fill_lot_and_trade_rows_with_correct_formul
 
 def test_writer_order_request_row_builds_for_enter_signal() -> None:
     db = _FakeDB()
+    hour = db.data["run_context"][0]["origin_hour_ts_utc"]
+    db.data["market_ohlcv_hourly"] = [
+        {
+            "asset_id": 1,
+            "hour_ts_utc": hour,
+            "close_price": Decimal("100.000000000000000000"),
+            "row_hash": "m" * 64,
+            "source_venue": "KRAKEN",
+        }
+    ]
     context = DeterministicContextBuilder(db).build_context(
         run_id=db.data["run_context"][0]["run_id"],
         account_id=1,
         run_mode="LIVE",
-        hour_ts_utc=db.data["run_context"][0]["origin_hour_ts_utc"],
+        hour_ts_utc=hour,
     )
     writer = AppendOnlyRuntimeWriter(db)
     decision = deterministic_decision(
@@ -553,6 +563,8 @@ def test_writer_order_request_row_builds_for_enter_signal() -> None:
     row = writer.build_order_request_row(context, signal)
     assert row is not None
     assert row.side == "BUY"
+    assert row.requested_qty == Decimal("0.100000000000000000")
+    assert row.requested_notional == Decimal("10.000000000000000000")
 
 
 def test_writer_validation_branches_raise_expected_errors() -> None:
@@ -712,3 +724,468 @@ def test_writer_validation_branches_raise_expected_errors() -> None:
             exit_fill=valid_fill,
             quantity=Decimal("1"),
         )
+
+
+def test_phase5_hash_builders_are_deterministic() -> None:
+    db = _FakeDB()
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=db.data["run_context"][0]["origin_hour_ts_utc"],
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+
+    portfolio_a = writer.build_portfolio_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode=context.run_context.run_mode,
+        account_id=context.run_context.account_id,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        cash_balance=Decimal("10000"),
+        market_value=Decimal("100"),
+        peak_portfolio_value=Decimal("10100"),
+        open_position_count=1,
+        halted=False,
+    )
+    portfolio_b = writer.build_portfolio_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode=context.run_context.run_mode,
+        account_id=context.run_context.account_id,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        cash_balance=Decimal("10000"),
+        market_value=Decimal("100"),
+        peak_portfolio_value=Decimal("10100"),
+        open_position_count=1,
+        halted=False,
+    )
+    assert portfolio_a.reconciliation_hash == portfolio_b.reconciliation_hash
+    assert portfolio_a.row_hash == portfolio_b.row_hash
+
+    risk_a = writer.build_risk_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode=context.run_context.run_mode,
+        account_id=context.run_context.account_id,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        portfolio_value=Decimal("10100"),
+        peak_portfolio_value=Decimal("10100"),
+        drawdown_pct=Decimal("0.0000000000"),
+        max_total_exposure_pct=Decimal("0.2000000000"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        kill_switch_active=False,
+        kill_switch_reason=None,
+        evaluated_at_utc=context.run_context.origin_hour_ts_utc,
+    )
+    risk_b = writer.build_risk_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode=context.run_context.run_mode,
+        account_id=context.run_context.account_id,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        portfolio_value=Decimal("10100"),
+        peak_portfolio_value=Decimal("10100"),
+        drawdown_pct=Decimal("0.0000000000"),
+        max_total_exposure_pct=Decimal("0.2000000000"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        kill_switch_active=False,
+        kill_switch_reason=None,
+        evaluated_at_utc=context.run_context.origin_hour_ts_utc,
+    )
+    assert risk_a.state_hash == risk_b.state_hash
+    assert risk_a.row_hash == risk_b.row_hash
+
+    cluster_a = writer.build_cluster_exposure_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode=context.run_context.run_mode,
+        account_id=context.run_context.account_id,
+        cluster_id=7,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        gross_exposure_notional=Decimal("100"),
+        portfolio_value=Decimal("10100"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        parent_risk_hash=risk_a.row_hash,
+    )
+    cluster_b = writer.build_cluster_exposure_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode=context.run_context.run_mode,
+        account_id=context.run_context.account_id,
+        cluster_id=7,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        gross_exposure_notional=Decimal("100"),
+        portfolio_value=Decimal("10100"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        parent_risk_hash=risk_a.row_hash,
+    )
+    assert cluster_a.state_hash == cluster_b.state_hash
+    assert cluster_a.row_hash == cluster_b.row_hash
+
+
+def test_cash_ledger_buy_sell_delta_formula_includes_slippage_cost() -> None:
+    db = _FakeDB()
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=db.data["run_context"][0]["origin_hour_ts_utc"],
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+    signal = replace(signal, action="ENTER", target_position_notional=Decimal("100"))
+
+    buy_order = writer.build_order_request_attempt_row(
+        context=context,
+        signal=signal,
+        side="BUY",
+        request_ts_utc=context.run_context.origin_hour_ts_utc,
+        requested_qty=Decimal("1"),
+        requested_notional=Decimal("100"),
+        status="FILLED",
+        attempt_seq=0,
+    )
+    buy_fill = writer.build_order_fill_row(
+        context=context,
+        order=buy_order,
+        fill_ts_utc=context.run_context.origin_hour_ts_utc,
+        fill_price=Decimal("100"),
+        fill_qty=Decimal("1"),
+        liquidity_flag="TAKER",
+        attempt_seq=0,
+    )
+    buy_cash_row = writer.build_cash_ledger_row(
+        context=context,
+        fill=buy_fill,
+        order_side="BUY",
+        ledger_seq=1,
+        balance_before=Decimal("1000"),
+        prev_ledger_hash=None,
+    )
+    assert buy_cash_row.delta_cash == -(
+        buy_fill.fill_notional + buy_fill.fee_paid + buy_fill.slippage_cost
+    )
+
+    sell_order = writer.build_order_request_attempt_row(
+        context=context,
+        signal=signal,
+        side="SELL",
+        request_ts_utc=context.run_context.origin_hour_ts_utc + timedelta(minutes=5),
+        requested_qty=Decimal("1"),
+        requested_notional=Decimal("1"),
+        status="FILLED",
+        attempt_seq=1,
+    )
+    sell_fill = writer.build_order_fill_row(
+        context=context,
+        order=sell_order,
+        fill_ts_utc=context.run_context.origin_hour_ts_utc + timedelta(minutes=5),
+        fill_price=Decimal("110"),
+        fill_qty=Decimal("1"),
+        liquidity_flag="TAKER",
+        attempt_seq=1,
+    )
+    sell_cash_row = writer.build_cash_ledger_row(
+        context=context,
+        fill=sell_fill,
+        order_side="SELL",
+        ledger_seq=2,
+        balance_before=buy_cash_row.balance_after,
+        prev_ledger_hash=buy_cash_row.ledger_hash,
+    )
+    assert sell_cash_row.delta_cash == (
+        sell_fill.fill_notional - sell_fill.fee_paid - sell_fill.slippage_cost
+    )
+
+
+def test_risk_hourly_state_builder_maps_drawdown_tiers_to_schema_controls() -> None:
+    db = _FakeDB()
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=db.data["run_context"][0]["origin_hour_ts_utc"],
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+
+    normal = writer.build_risk_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode="LIVE",
+        account_id=1,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        portfolio_value=Decimal("10000"),
+        peak_portfolio_value=Decimal("10000"),
+        drawdown_pct=Decimal("0.0500000000"),
+        max_total_exposure_pct=Decimal("0.2000000000"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        kill_switch_active=False,
+        kill_switch_reason=None,
+        evaluated_at_utc=context.run_context.origin_hour_ts_utc,
+    )
+    assert normal.drawdown_tier == "NORMAL"
+    assert normal.base_risk_fraction == Decimal("0.0200000000")
+    assert normal.halt_new_entries is False
+
+    dd10 = writer.build_risk_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode="LIVE",
+        account_id=1,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        portfolio_value=Decimal("9500"),
+        peak_portfolio_value=Decimal("10000"),
+        drawdown_pct=Decimal("0.1200000000"),
+        max_total_exposure_pct=Decimal("0.2000000000"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        kill_switch_active=False,
+        kill_switch_reason=None,
+        evaluated_at_utc=context.run_context.origin_hour_ts_utc,
+    )
+    assert dd10.drawdown_tier == "DD10"
+    assert dd10.base_risk_fraction == Decimal("0.0150000000")
+
+    dd15 = writer.build_risk_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode="LIVE",
+        account_id=1,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        portfolio_value=Decimal("8400"),
+        peak_portfolio_value=Decimal("10000"),
+        drawdown_pct=Decimal("0.1600000000"),
+        max_total_exposure_pct=Decimal("0.2000000000"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        kill_switch_active=False,
+        kill_switch_reason=None,
+        evaluated_at_utc=context.run_context.origin_hour_ts_utc,
+    )
+    assert dd15.drawdown_tier == "DD15"
+    assert dd15.base_risk_fraction == Decimal("0.0100000000")
+    assert dd15.max_concurrent_positions == 5
+
+    halt20 = writer.build_risk_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode="LIVE",
+        account_id=1,
+        hour_ts_utc=context.run_context.origin_hour_ts_utc,
+        source_run_id=context.run_context.run_id,
+        portfolio_value=Decimal("7000"),
+        peak_portfolio_value=Decimal("10000"),
+        drawdown_pct=Decimal("0.3000000000"),
+        max_total_exposure_pct=Decimal("0.2000000000"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        kill_switch_active=False,
+        kill_switch_reason=None,
+        evaluated_at_utc=context.run_context.origin_hour_ts_utc,
+    )
+    assert halt20.drawdown_tier == "HALT20"
+    assert halt20.base_risk_fraction == Decimal("0.0000000000")
+    assert halt20.halt_new_entries is True
+    assert halt20.requires_manual_review is True
+
+
+def test_writer_order_request_row_uses_order_book_ask_and_missing_price_aborts() -> None:
+    db = _FakeDB()
+    hour = db.data["run_context"][0]["origin_hour_ts_utc"]
+    db.data["order_book_snapshot"] = [
+        {
+            "asset_id": 1,
+            "snapshot_ts_utc": hour,
+            "hour_ts_utc": hour,
+            "best_bid_price": Decimal("99.000000000000000000"),
+            "best_ask_price": Decimal("100.000000000000000000"),
+            "best_bid_size": Decimal("1000"),
+            "best_ask_size": Decimal("1000"),
+            "row_hash": "z" * 64,
+        }
+    ]
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=hour,
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+    signal = replace(signal, action="ENTER", target_position_notional=Decimal("10.000000000000000000"))
+
+    row = writer.build_order_request_row(context, signal)
+    assert row is not None
+    assert row.requested_qty == Decimal("0.100000000000000000")
+
+    db_no_price = _FakeDB()
+    no_price_context = DeterministicContextBuilder(db_no_price).build_context(
+        run_id=db_no_price.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=db_no_price.data["run_context"][0]["origin_hour_ts_utc"],
+    )
+    no_price_writer = AppendOnlyRuntimeWriter(db_no_price)
+    no_price_decision = deterministic_decision(
+        prediction_hash=no_price_context.predictions[0].row_hash,
+        regime_hash=no_price_context.regimes[0].row_hash,
+        capital_state_hash=no_price_context.capital_state.row_hash,
+        risk_state_hash=no_price_context.risk_state.row_hash,
+        cluster_state_hash=no_price_context.cluster_states[0].row_hash,
+    )
+    no_price_signal = no_price_writer.build_trade_signal_row(
+        no_price_context,
+        no_price_context.predictions[0],
+        no_price_context.regimes[0],
+        no_price_decision,
+    )
+    no_price_signal = replace(
+        no_price_signal,
+        action="ENTER",
+        target_position_notional=Decimal("10.000000000000000000"),
+    )
+    with pytest.raises(Exception, match="Cannot derive entry reference price"):
+        no_price_writer.build_order_request_row(no_price_context, no_price_signal)
+
+
+def test_cash_ledger_builder_invalid_side_and_negative_balance_abort() -> None:
+    db = _FakeDB()
+    hour = db.data["run_context"][0]["origin_hour_ts_utc"]
+    db.data["market_ohlcv_hourly"] = [
+        {
+            "asset_id": 1,
+            "hour_ts_utc": hour,
+            "close_price": Decimal("100.000000000000000000"),
+            "row_hash": "m" * 64,
+            "source_venue": "KRAKEN",
+        }
+    ]
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=hour,
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+    signal = replace(signal, action="ENTER", target_position_notional=Decimal("1.000000000000000000"))
+    order = writer.build_order_request_attempt_row(
+        context=context,
+        signal=signal,
+        side="BUY",
+        request_ts_utc=hour,
+        requested_qty=Decimal("1.000000000000000000"),
+        requested_notional=Decimal("1.000000000000000000"),
+        status="FILLED",
+        attempt_seq=0,
+    )
+    fill = writer.build_order_fill_row(
+        context=context,
+        order=order,
+        fill_ts_utc=hour,
+        fill_price=Decimal("100.000000000000000000"),
+        fill_qty=Decimal("1.000000000000000000"),
+        liquidity_flag="TAKER",
+        attempt_seq=0,
+    )
+
+    with pytest.raises(Exception, match="Unsupported order side"):
+        writer.build_cash_ledger_row(
+            context=context,
+            fill=fill,
+            order_side="HOLD",
+            ledger_seq=1,
+            balance_before=Decimal("1000"),
+            prev_ledger_hash=None,
+        )
+
+    with pytest.raises(Exception, match="balance_after would be negative"):
+        writer.build_cash_ledger_row(
+            context=context,
+            fill=fill,
+            order_side="BUY",
+            ledger_seq=1,
+            balance_before=Decimal("10"),
+            prev_ledger_hash=None,
+        )
+
+
+def test_risk_hourly_state_builder_validates_exposure_bounds_and_kill_reason_default() -> None:
+    db = _FakeDB()
+    hour = db.data["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=hour,
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+
+    with pytest.raises(Exception, match="max_total_exposure_pct outside schema range"):
+        writer.build_risk_hourly_state_row(
+            run_seed_hash=context.run_context.run_seed_hash,
+            run_mode="LIVE",
+            account_id=1,
+            hour_ts_utc=hour,
+            source_run_id=context.run_context.run_id,
+            portfolio_value=Decimal("10000"),
+            peak_portfolio_value=Decimal("10000"),
+            drawdown_pct=Decimal("0.0100000000"),
+            max_total_exposure_pct=Decimal("0.3000000000"),
+            max_cluster_exposure_pct=Decimal("0.0800000000"),
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            evaluated_at_utc=hour,
+        )
+
+    with pytest.raises(Exception, match="max_cluster_exposure_pct outside schema range"):
+        writer.build_risk_hourly_state_row(
+            run_seed_hash=context.run_context.run_seed_hash,
+            run_mode="LIVE",
+            account_id=1,
+            hour_ts_utc=hour,
+            source_run_id=context.run_context.run_id,
+            portfolio_value=Decimal("10000"),
+            peak_portfolio_value=Decimal("10000"),
+            drawdown_pct=Decimal("0.0100000000"),
+            max_total_exposure_pct=Decimal("0.2000000000"),
+            max_cluster_exposure_pct=Decimal("0.0900000000"),
+            kill_switch_active=False,
+            kill_switch_reason=None,
+            evaluated_at_utc=hour,
+        )
+
+    risk = writer.build_risk_hourly_state_row(
+        run_seed_hash=context.run_context.run_seed_hash,
+        run_mode="LIVE",
+        account_id=1,
+        hour_ts_utc=hour,
+        source_run_id=context.run_context.run_id,
+        portfolio_value=Decimal("7000"),
+        peak_portfolio_value=Decimal("10000"),
+        drawdown_pct=Decimal("0.3000000000"),
+        max_total_exposure_pct=Decimal("0.2000000000"),
+        max_cluster_exposure_pct=Decimal("0.0800000000"),
+        kill_switch_active=True,
+        kill_switch_reason=" ",
+        evaluated_at_utc=hour,
+    )
+    assert risk.kill_switch_reason == "DETERMINISTIC_KILL_SWITCH"

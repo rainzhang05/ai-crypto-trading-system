@@ -8,6 +8,9 @@ from typing import Any
 
 import pytest
 
+from execution.decision_engine import DecisionResult
+from execution.deterministic_context import DeterministicAbortError
+import execution.replay_engine as replay_engine_module
 from execution.replay_engine import execute_hour, replay_hour
 from tests.utils.runtime_db import (
     PsycopgRuntimeDB,
@@ -25,11 +28,35 @@ def _count_rows(db: PsycopgRuntimeDB, table: str, run_id: str) -> int:
     return int(row["n"]) if row is not None else 0
 
 
-def test_execute_hour_success_and_replay_parity(runtime_db: PsycopgRuntimeDB) -> None:
+def _forced_enter_decision(**_: Any) -> DecisionResult:
+    return DecisionResult(
+        decision_hash="e" * 64,
+        action="ENTER",
+        direction="LONG",
+        confidence=Decimal("0.8000000000"),
+        position_size_fraction=Decimal("0.0100000000"),
+    )
+
+
+def _forced_exit_decision(**_: Any) -> DecisionResult:
+    return DecisionResult(
+        decision_hash="f" * 64,
+        action="EXIT",
+        direction="FLAT",
+        confidence=Decimal("0.7000000000"),
+        position_size_fraction=Decimal("0.0000000000"),
+    )
+
+
+def test_execute_hour_success_and_replay_parity(
+    runtime_db: PsycopgRuntimeDB,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay_engine_module, "deterministic_decision", _forced_enter_decision)
     fixture = insert_runtime_fixture(
         runtime_db,
         seed="int_success",
-        prediction_row_hash="4" * 64,  # deterministic_decision => ENTER for fixture hash set
+        prediction_row_hash="4" * 64,
     )
     result = execute_hour(
         db=runtime_db,
@@ -51,6 +78,10 @@ def test_execute_hour_success_and_replay_parity(runtime_db: PsycopgRuntimeDB) ->
     assert len(result.position_lots) == 1
     assert len(result.executed_trades) == 0
     assert len(result.risk_events) == 1
+    assert len(result.cash_ledger_rows) == 1
+    assert len(result.portfolio_hourly_states) == 1
+    assert len(result.cluster_exposure_hourly_states) >= 1
+    assert len(result.risk_hourly_states) == 1
     assert report.mismatch_count == 0
 
     assert _count_rows(runtime_db, "trade_signal", str(fixture.run_id)) == 1
@@ -59,6 +90,29 @@ def test_execute_hour_success_and_replay_parity(runtime_db: PsycopgRuntimeDB) ->
     assert _count_rows(runtime_db, "position_lot", str(fixture.run_id)) == 1
     assert _count_rows(runtime_db, "executed_trade", str(fixture.run_id)) == 0
     assert _count_rows(runtime_db, "risk_event", str(fixture.run_id)) == 1
+    phase5_counts = runtime_db.fetch_one(
+        """
+        SELECT
+            (SELECT COUNT(*) FROM portfolio_hourly_state
+             WHERE source_run_id = :run_id AND account_id = :account_id AND hour_ts_utc = :hour_ts_utc) AS portfolio_n,
+            (SELECT COUNT(*) FROM risk_hourly_state
+             WHERE source_run_id = :run_id AND account_id = :account_id AND hour_ts_utc = :hour_ts_utc) AS risk_n,
+            (SELECT COUNT(*) FROM cluster_exposure_hourly_state
+             WHERE source_run_id = :run_id AND account_id = :account_id AND hour_ts_utc = :hour_ts_utc) AS cluster_n,
+            (SELECT COUNT(*) FROM cash_ledger
+             WHERE run_id = :run_id AND account_id = :account_id AND origin_hour_ts_utc = :hour_ts_utc) AS cash_n
+        """,
+        {
+            "run_id": str(fixture.run_id),
+            "account_id": fixture.account_id,
+            "hour_ts_utc": fixture.hour_ts_utc,
+        },
+    )
+    assert phase5_counts is not None
+    assert int(phase5_counts["portfolio_n"]) == 1
+    assert int(phase5_counts["risk_n"]) == 1
+    assert int(phase5_counts["cluster_n"]) >= 1
+    assert int(phase5_counts["cash_n"]) == 1
 
     hash_row = runtime_db.fetch_one(
         """
@@ -102,7 +156,11 @@ def test_execute_hour_success_and_replay_parity(runtime_db: PsycopgRuntimeDB) ->
     assert int(causality_row["violations"]) == 0
 
 
-def test_activation_gate_revoked_blocks_order_and_logs_risk_event(runtime_db: PsycopgRuntimeDB) -> None:
+def test_activation_gate_revoked_blocks_order_and_logs_risk_event(
+    runtime_db: PsycopgRuntimeDB,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay_engine_module, "deterministic_decision", _forced_enter_decision)
     fixture = insert_runtime_fixture(
         runtime_db,
         seed="int_activation_revoked",
@@ -133,7 +191,11 @@ def test_activation_gate_revoked_blocks_order_and_logs_risk_event(runtime_db: Ps
     assert int(row["n"]) >= 1
 
 
-def test_cluster_cap_violation_blocks_order_and_logs_risk_event(runtime_db: PsycopgRuntimeDB) -> None:
+def test_cluster_cap_violation_blocks_order_and_logs_risk_event(
+    runtime_db: PsycopgRuntimeDB,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay_engine_module, "deterministic_decision", _forced_enter_decision)
     fixture = insert_runtime_fixture(
         runtime_db,
         seed="int_cluster_cap",
@@ -162,11 +224,15 @@ def test_cluster_cap_violation_blocks_order_and_logs_risk_event(runtime_db: Psyc
     assert int(row["n"]) >= 1
 
 
-def test_runtime_risk_gate_halt_blocks_order_and_logs_risk_event(runtime_db: PsycopgRuntimeDB) -> None:
+def test_runtime_risk_gate_halt_blocks_order_and_logs_risk_event(
+    runtime_db: PsycopgRuntimeDB,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay_engine_module, "deterministic_decision", _forced_enter_decision)
     fixture = insert_runtime_fixture(
         runtime_db,
         seed="int_halt_gate",
-        halt_new_entries=True,
+        kill_switch_active=True,
         prediction_row_hash="4" * 64,
     )
     result = execute_hour(
@@ -183,7 +249,7 @@ def test_runtime_risk_gate_halt_blocks_order_and_logs_risk_event(runtime_db: Psy
         SELECT COUNT(*) AS n
         FROM risk_event
         WHERE run_id = :run_id
-          AND reason_code = 'HALT_NEW_ENTRIES_ACTIVE'
+          AND reason_code = 'KILL_SWITCH_ACTIVE'
         """,
         {"run_id": str(fixture.run_id)},
     )
@@ -214,11 +280,36 @@ def test_parent_hash_mismatch_aborts_insert_without_partial_writes(runtime_db: P
     assert int(run_ctx_rows["n"]) == 0
 
 
-def test_exit_path_with_preloaded_lot_persists_executed_trade(runtime_db: PsycopgRuntimeDB) -> None:
+def test_existing_phase5_row_hash_mismatch_aborts_atomically(runtime_db: PsycopgRuntimeDB) -> None:
+    fixture = insert_runtime_fixture(
+        runtime_db,
+        seed="int_phase5_hash_mismatch",
+        prediction_row_hash="4" * 64,
+        preseed_current_phase5=True,
+    )
+    with pytest.raises(DeterministicAbortError, match="portfolio_hourly_state hash mismatch"):
+        execute_hour(
+            db=runtime_db,
+            run_id=fixture.run_id,
+            account_id=fixture.account_id,
+            run_mode="LIVE",
+            hour_ts_utc=fixture.hour_ts_utc,
+        )
+    runtime_db.conn.rollback()
+
+    assert _count_rows(runtime_db, "trade_signal", str(fixture.run_id)) == 0
+    assert _count_rows(runtime_db, "order_request", str(fixture.run_id)) == 0
+
+
+def test_exit_path_with_preloaded_lot_persists_executed_trade(
+    runtime_db: PsycopgRuntimeDB,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay_engine_module, "deterministic_decision", _forced_exit_decision)
     fixture = insert_runtime_fixture(
         runtime_db,
         seed="int_exit_with_lot",
-        prediction_row_hash="3" * 64,  # deterministic_decision => EXIT
+        prediction_row_hash="3" * 64,
         expected_return=Decimal("-0.020000000000000000"),
     )
     preload_open_lot_for_sell_path(runtime_db, fixture, seed="int_exit_with_lot")
@@ -243,11 +334,15 @@ def test_exit_path_with_preloaded_lot_persists_executed_trade(runtime_db: Psycop
     assert int(count_row["n"]) >= 1
 
 
-def test_exit_path_without_lots_emits_no_shorting_guard(runtime_db: PsycopgRuntimeDB) -> None:
+def test_exit_path_without_lots_emits_no_shorting_guard(
+    runtime_db: PsycopgRuntimeDB,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(replay_engine_module, "deterministic_decision", _forced_exit_decision)
     fixture = insert_runtime_fixture(
         runtime_db,
         seed="int_exit_without_lots",
-        prediction_row_hash="3" * 64,  # deterministic_decision => EXIT
+        prediction_row_hash="3" * 64,
         expected_return=Decimal("-0.020000000000000000"),
     )
     result = execute_hour(

@@ -179,6 +179,83 @@ class RiskEventRow:
 
 
 @dataclass(frozen=True)
+class CashLedgerRow:
+    run_id: UUID
+    run_mode: str
+    account_id: int
+    event_ts_utc: datetime
+    hour_ts_utc: datetime
+    event_type: str
+    ref_type: str
+    ref_id: UUID
+    delta_cash: Decimal
+    balance_after: Decimal
+    origin_hour_ts_utc: datetime
+    ledger_seq: int
+    balance_before: Decimal
+    prev_ledger_hash: Optional[str]
+    economic_event_hash: str
+    ledger_hash: str
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class PortfolioHourlyStateRow:
+    run_mode: str
+    account_id: int
+    hour_ts_utc: datetime
+    cash_balance: Decimal
+    market_value: Decimal
+    portfolio_value: Decimal
+    peak_portfolio_value: Decimal
+    drawdown_pct: Decimal
+    total_exposure_pct: Decimal
+    open_position_count: int
+    halted: bool
+    source_run_id: UUID
+    reconciliation_hash: str
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class ClusterExposureHourlyStateRow:
+    run_mode: str
+    account_id: int
+    cluster_id: int
+    hour_ts_utc: datetime
+    source_run_id: UUID
+    gross_exposure_notional: Decimal
+    exposure_pct: Decimal
+    max_cluster_exposure_pct: Decimal
+    state_hash: str
+    parent_risk_hash: str
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class RiskHourlyStateRow:
+    run_mode: str
+    account_id: int
+    hour_ts_utc: datetime
+    portfolio_value: Decimal
+    peak_portfolio_value: Decimal
+    drawdown_pct: Decimal
+    drawdown_tier: str
+    base_risk_fraction: Decimal
+    max_concurrent_positions: int
+    max_total_exposure_pct: Decimal
+    max_cluster_exposure_pct: Decimal
+    halt_new_entries: bool
+    kill_switch_active: bool
+    kill_switch_reason: Optional[str]
+    requires_manual_review: bool
+    evaluated_at_utc: datetime
+    source_run_id: UUID
+    state_hash: str
+    row_hash: str
+
+
+@dataclass(frozen=True)
 class RuntimeWriteResult:
     trade_signals: tuple[TradeSignalRow, ...]
     order_requests: tuple[OrderRequestRow, ...]
@@ -186,6 +263,10 @@ class RuntimeWriteResult:
     position_lots: tuple[PositionLotRow, ...]
     executed_trades: tuple[ExecutedTradeRow, ...]
     risk_events: tuple[RiskEventRow, ...]
+    cash_ledger_rows: tuple[CashLedgerRow, ...]
+    portfolio_hourly_states: tuple[PortfolioHourlyStateRow, ...]
+    cluster_exposure_hourly_states: tuple[ClusterExposureHourlyStateRow, ...]
+    risk_hourly_states: tuple[RiskHourlyStateRow, ...]
 
 
 class AppendOnlyRuntimeWriter:
@@ -403,7 +484,23 @@ class AppendOnlyRuntimeWriter:
         if signal.target_position_notional <= 0:
             return None
 
-        requested_qty = normalize_decimal(signal.target_position_notional, NUMERIC_18)
+        snapshot = context.find_latest_order_book_snapshot(
+            signal.asset_id,
+            context.run_context.origin_hour_ts_utc,
+        )
+        reference_price: Optional[Decimal] = None
+        if snapshot is not None and snapshot.best_ask_price > 0:
+            reference_price = normalize_decimal(snapshot.best_ask_price, NUMERIC_18)
+        if reference_price is None:
+            candle = context.find_ohlcv(signal.asset_id)
+            if candle is not None and candle.close_price > 0:
+                reference_price = normalize_decimal(candle.close_price, NUMERIC_18)
+        if reference_price is None or reference_price <= 0:
+            raise DeterministicAbortError(
+                f"Cannot derive entry reference price for asset_id={signal.asset_id}."
+            )
+
+        requested_qty = normalize_decimal(signal.target_position_notional / reference_price, NUMERIC_18)
         requested_notional = normalize_decimal(signal.target_position_notional, NUMERIC_18)
         return self.build_order_request_attempt_row(
             context=context,
@@ -982,6 +1079,767 @@ class AppendOnlyRuntimeWriter:
                 "origin_hour_ts_utc": risk_event.origin_hour_ts_utc,
                 "parent_state_hash": risk_event.parent_state_hash,
                 "row_hash": risk_event.row_hash,
+            },
+        )
+
+    def build_cash_economic_event_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        fill: OrderFillRow,
+        order_side: str,
+        delta_cash: Decimal,
+        balance_before: Decimal,
+        balance_after: Decimal,
+        ledger_seq: int,
+        prev_ledger_hash: Optional[str],
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_cash_economic_event_v1",
+                run_seed_hash,
+                str(fill.fill_id),
+                order_side,
+                fill.fill_ts_utc,
+                fill.fill_notional,
+                fill.fee_paid,
+                fill.slippage_cost,
+                delta_cash,
+                balance_before,
+                balance_after,
+                ledger_seq,
+                prev_ledger_hash or "",
+            )
+        )
+
+    def build_cash_ledger_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        ledger_seq: int,
+        prev_ledger_hash: Optional[str],
+        economic_event_hash: str,
+        delta_cash: Decimal,
+        balance_before: Decimal,
+        balance_after: Decimal,
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_cash_ledger_hash_v1",
+                run_seed_hash,
+                ledger_seq,
+                prev_ledger_hash or "",
+                economic_event_hash,
+                delta_cash,
+                balance_before,
+                balance_after,
+            )
+        )
+
+    def build_cash_row_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        row: CashLedgerRow,
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_cash_row_hash_v1",
+                run_seed_hash,
+                str(row.run_id),
+                row.run_mode,
+                row.account_id,
+                row.event_ts_utc,
+                row.hour_ts_utc,
+                row.event_type,
+                row.ref_type,
+                str(row.ref_id),
+                row.delta_cash,
+                row.balance_after,
+                row.origin_hour_ts_utc,
+                row.ledger_seq,
+                row.balance_before,
+                row.prev_ledger_hash or "",
+                row.economic_event_hash,
+                row.ledger_hash,
+            )
+        )
+
+    def build_portfolio_reconciliation_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        run_mode: str,
+        account_id: int,
+        hour_ts_utc: datetime,
+        cash_balance: Decimal,
+        market_value: Decimal,
+        portfolio_value: Decimal,
+        peak_portfolio_value: Decimal,
+        drawdown_pct: Decimal,
+        total_exposure_pct: Decimal,
+        open_position_count: int,
+        halted: bool,
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_portfolio_reconciliation_v1",
+                run_seed_hash,
+                run_mode,
+                account_id,
+                hour_ts_utc,
+                cash_balance,
+                market_value,
+                portfolio_value,
+                peak_portfolio_value,
+                drawdown_pct,
+                total_exposure_pct,
+                open_position_count,
+                halted,
+            )
+        )
+
+    def build_portfolio_row_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        row: PortfolioHourlyStateRow,
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_portfolio_row_hash_v1",
+                run_seed_hash,
+                row.run_mode,
+                row.account_id,
+                row.hour_ts_utc,
+                row.cash_balance,
+                row.market_value,
+                row.portfolio_value,
+                row.peak_portfolio_value,
+                row.drawdown_pct,
+                row.total_exposure_pct,
+                row.open_position_count,
+                row.halted,
+                str(row.source_run_id),
+                row.reconciliation_hash,
+            )
+        )
+
+    def build_risk_state_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        run_mode: str,
+        account_id: int,
+        hour_ts_utc: datetime,
+        portfolio_value: Decimal,
+        peak_portfolio_value: Decimal,
+        drawdown_pct: Decimal,
+        drawdown_tier: str,
+        base_risk_fraction: Decimal,
+        max_concurrent_positions: int,
+        max_total_exposure_pct: Decimal,
+        max_cluster_exposure_pct: Decimal,
+        halt_new_entries: bool,
+        kill_switch_active: bool,
+        kill_switch_reason: Optional[str],
+        requires_manual_review: bool,
+        evaluated_at_utc: datetime,
+        source_run_id: UUID,
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_risk_state_hash_v1",
+                run_seed_hash,
+                run_mode,
+                account_id,
+                hour_ts_utc,
+                portfolio_value,
+                peak_portfolio_value,
+                drawdown_pct,
+                drawdown_tier,
+                base_risk_fraction,
+                max_concurrent_positions,
+                max_total_exposure_pct,
+                max_cluster_exposure_pct,
+                halt_new_entries,
+                kill_switch_active,
+                kill_switch_reason or "",
+                requires_manual_review,
+                evaluated_at_utc,
+                str(source_run_id),
+            )
+        )
+
+    def build_risk_row_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        row: RiskHourlyStateRow,
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_risk_row_hash_v1",
+                run_seed_hash,
+                row.run_mode,
+                row.account_id,
+                row.hour_ts_utc,
+                row.portfolio_value,
+                row.peak_portfolio_value,
+                row.drawdown_pct,
+                row.drawdown_tier,
+                row.base_risk_fraction,
+                row.max_concurrent_positions,
+                row.max_total_exposure_pct,
+                row.max_cluster_exposure_pct,
+                row.halt_new_entries,
+                row.kill_switch_active,
+                row.kill_switch_reason or "",
+                row.requires_manual_review,
+                row.evaluated_at_utc,
+                str(row.source_run_id),
+                row.state_hash,
+            )
+        )
+
+    def build_cluster_state_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        run_mode: str,
+        account_id: int,
+        cluster_id: int,
+        hour_ts_utc: datetime,
+        source_run_id: UUID,
+        gross_exposure_notional: Decimal,
+        exposure_pct: Decimal,
+        max_cluster_exposure_pct: Decimal,
+        parent_risk_hash: str,
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_cluster_state_hash_v1",
+                run_seed_hash,
+                run_mode,
+                account_id,
+                cluster_id,
+                hour_ts_utc,
+                str(source_run_id),
+                gross_exposure_notional,
+                exposure_pct,
+                max_cluster_exposure_pct,
+                parent_risk_hash,
+            )
+        )
+
+    def build_cluster_row_hash(
+        self,
+        *,
+        run_seed_hash: str,
+        row: ClusterExposureHourlyStateRow,
+    ) -> str:
+        return stable_hash(
+            (
+                "phase_5_cluster_row_hash_v1",
+                run_seed_hash,
+                row.run_mode,
+                row.account_id,
+                row.cluster_id,
+                row.hour_ts_utc,
+                str(row.source_run_id),
+                row.gross_exposure_notional,
+                row.exposure_pct,
+                row.max_cluster_exposure_pct,
+                row.state_hash,
+                row.parent_risk_hash,
+            )
+        )
+
+    def build_cash_ledger_row(
+        self,
+        *,
+        context: ExecutionContext,
+        fill: OrderFillRow,
+        order_side: str,
+        ledger_seq: int,
+        balance_before: Decimal,
+        prev_ledger_hash: Optional[str],
+        event_type: str = "ORDER_FILL_SETTLEMENT",
+    ) -> CashLedgerRow:
+        side = order_side.upper()
+        if side not in {"BUY", "SELL"}:
+            raise DeterministicAbortError(f"Unsupported order side for cash ledger: {order_side}.")
+
+        if side == "BUY":
+            delta_cash = normalize_decimal(
+                -(fill.fill_notional + fill.fee_paid + fill.slippage_cost),
+                NUMERIC_18,
+            )
+        else:
+            delta_cash = normalize_decimal(
+                fill.fill_notional - fill.fee_paid - fill.slippage_cost,
+                NUMERIC_18,
+            )
+
+        balance_before_norm = normalize_decimal(balance_before, NUMERIC_18)
+        balance_after = normalize_decimal(balance_before_norm + delta_cash, NUMERIC_18)
+        if balance_after < 0:
+            raise DeterministicAbortError(
+                f"cash_ledger balance_after would be negative for fill_id={fill.fill_id}."
+            )
+
+        economic_event_hash = self.build_cash_economic_event_hash(
+            run_seed_hash=context.run_context.run_seed_hash,
+            fill=fill,
+            order_side=side,
+            delta_cash=delta_cash,
+            balance_before=balance_before_norm,
+            balance_after=balance_after,
+            ledger_seq=ledger_seq,
+            prev_ledger_hash=prev_ledger_hash,
+        )
+        ledger_hash = self.build_cash_ledger_hash(
+            run_seed_hash=context.run_context.run_seed_hash,
+            ledger_seq=ledger_seq,
+            prev_ledger_hash=prev_ledger_hash,
+            economic_event_hash=economic_event_hash,
+            delta_cash=delta_cash,
+            balance_before=balance_before_norm,
+            balance_after=balance_after,
+        )
+
+        base_row = CashLedgerRow(
+            run_id=fill.run_id,
+            run_mode=fill.run_mode,
+            account_id=fill.account_id,
+            event_ts_utc=fill.fill_ts_utc,
+            hour_ts_utc=fill.hour_ts_utc,
+            event_type=event_type,
+            ref_type="ORDER_FILL",
+            ref_id=fill.fill_id,
+            delta_cash=delta_cash,
+            balance_after=balance_after,
+            origin_hour_ts_utc=fill.origin_hour_ts_utc,
+            ledger_seq=ledger_seq,
+            balance_before=balance_before_norm,
+            prev_ledger_hash=prev_ledger_hash,
+            economic_event_hash=economic_event_hash,
+            ledger_hash=ledger_hash,
+            row_hash="",
+        )
+        row_hash = self.build_cash_row_hash(
+            run_seed_hash=context.run_context.run_seed_hash,
+            row=base_row,
+        )
+        return CashLedgerRow(
+            run_id=base_row.run_id,
+            run_mode=base_row.run_mode,
+            account_id=base_row.account_id,
+            event_ts_utc=base_row.event_ts_utc,
+            hour_ts_utc=base_row.hour_ts_utc,
+            event_type=base_row.event_type,
+            ref_type=base_row.ref_type,
+            ref_id=base_row.ref_id,
+            delta_cash=base_row.delta_cash,
+            balance_after=base_row.balance_after,
+            origin_hour_ts_utc=base_row.origin_hour_ts_utc,
+            ledger_seq=base_row.ledger_seq,
+            balance_before=base_row.balance_before,
+            prev_ledger_hash=base_row.prev_ledger_hash,
+            economic_event_hash=base_row.economic_event_hash,
+            ledger_hash=base_row.ledger_hash,
+            row_hash=row_hash,
+        )
+
+    def insert_cash_ledger(self, row: CashLedgerRow) -> None:
+        self._db.execute(
+            """
+            INSERT INTO cash_ledger (
+                run_id, run_mode, account_id, event_ts_utc, hour_ts_utc, event_type, ref_type,
+                ref_id, delta_cash, balance_after, origin_hour_ts_utc, ledger_seq, balance_before,
+                prev_ledger_hash, economic_event_hash, ledger_hash, row_hash
+            ) VALUES (
+                :run_id, :run_mode, :account_id, :event_ts_utc, :hour_ts_utc, :event_type, :ref_type,
+                :ref_id, :delta_cash, :balance_after, :origin_hour_ts_utc, :ledger_seq, :balance_before,
+                :prev_ledger_hash, :economic_event_hash, :ledger_hash, :row_hash
+            )
+            """,
+            {
+                "run_id": str(row.run_id),
+                "run_mode": row.run_mode,
+                "account_id": row.account_id,
+                "event_ts_utc": row.event_ts_utc,
+                "hour_ts_utc": row.hour_ts_utc,
+                "event_type": row.event_type,
+                "ref_type": row.ref_type,
+                "ref_id": str(row.ref_id),
+                "delta_cash": row.delta_cash,
+                "balance_after": row.balance_after,
+                "origin_hour_ts_utc": row.origin_hour_ts_utc,
+                "ledger_seq": row.ledger_seq,
+                "balance_before": row.balance_before,
+                "prev_ledger_hash": row.prev_ledger_hash,
+                "economic_event_hash": row.economic_event_hash,
+                "ledger_hash": row.ledger_hash,
+                "row_hash": row.row_hash,
+            },
+        )
+
+    def build_portfolio_hourly_state_row(
+        self,
+        *,
+        run_seed_hash: str,
+        run_mode: str,
+        account_id: int,
+        hour_ts_utc: datetime,
+        source_run_id: UUID,
+        cash_balance: Decimal,
+        market_value: Decimal,
+        peak_portfolio_value: Decimal,
+        open_position_count: int,
+        halted: bool,
+    ) -> PortfolioHourlyStateRow:
+        cash = normalize_decimal(cash_balance, NUMERIC_18)
+        market = normalize_decimal(market_value, NUMERIC_18)
+        portfolio_value = normalize_decimal(cash + market, NUMERIC_18)
+        peak_value = normalize_decimal(max(peak_portfolio_value, portfolio_value), NUMERIC_18)
+        drawdown_pct = (
+            normalize_decimal((peak_value - portfolio_value) / peak_value, NUMERIC_10)
+            if peak_value > 0
+            else Decimal("0").quantize(NUMERIC_10)
+        )
+        total_exposure_pct = (
+            normalize_decimal(market / portfolio_value, NUMERIC_10)
+            if portfolio_value > 0
+            else Decimal("0").quantize(NUMERIC_10)
+        )
+        reconciliation_hash = self.build_portfolio_reconciliation_hash(
+            run_seed_hash=run_seed_hash,
+            run_mode=run_mode,
+            account_id=account_id,
+            hour_ts_utc=hour_ts_utc,
+            cash_balance=cash,
+            market_value=market,
+            portfolio_value=portfolio_value,
+            peak_portfolio_value=peak_value,
+            drawdown_pct=drawdown_pct,
+            total_exposure_pct=total_exposure_pct,
+            open_position_count=open_position_count,
+            halted=halted,
+        )
+        row = PortfolioHourlyStateRow(
+            run_mode=run_mode,
+            account_id=account_id,
+            hour_ts_utc=hour_ts_utc,
+            cash_balance=cash,
+            market_value=market,
+            portfolio_value=portfolio_value,
+            peak_portfolio_value=peak_value,
+            drawdown_pct=drawdown_pct,
+            total_exposure_pct=total_exposure_pct,
+            open_position_count=open_position_count,
+            halted=halted,
+            source_run_id=source_run_id,
+            reconciliation_hash=reconciliation_hash,
+            row_hash="",
+        )
+        row_hash = self.build_portfolio_row_hash(run_seed_hash=run_seed_hash, row=row)
+        return PortfolioHourlyStateRow(
+            run_mode=row.run_mode,
+            account_id=row.account_id,
+            hour_ts_utc=row.hour_ts_utc,
+            cash_balance=row.cash_balance,
+            market_value=row.market_value,
+            portfolio_value=row.portfolio_value,
+            peak_portfolio_value=row.peak_portfolio_value,
+            drawdown_pct=row.drawdown_pct,
+            total_exposure_pct=row.total_exposure_pct,
+            open_position_count=row.open_position_count,
+            halted=row.halted,
+            source_run_id=row.source_run_id,
+            reconciliation_hash=row.reconciliation_hash,
+            row_hash=row_hash,
+        )
+
+    def insert_portfolio_hourly_state(self, row: PortfolioHourlyStateRow) -> None:
+        self._db.execute(
+            """
+            INSERT INTO portfolio_hourly_state (
+                run_mode, account_id, hour_ts_utc, cash_balance, market_value, portfolio_value,
+                peak_portfolio_value, drawdown_pct, total_exposure_pct, open_position_count,
+                halted, source_run_id, reconciliation_hash, row_hash
+            ) VALUES (
+                :run_mode, :account_id, :hour_ts_utc, :cash_balance, :market_value, :portfolio_value,
+                :peak_portfolio_value, :drawdown_pct, :total_exposure_pct, :open_position_count,
+                :halted, :source_run_id, :reconciliation_hash, :row_hash
+            )
+            """,
+            {
+                "run_mode": row.run_mode,
+                "account_id": row.account_id,
+                "hour_ts_utc": row.hour_ts_utc,
+                "cash_balance": row.cash_balance,
+                "market_value": row.market_value,
+                "portfolio_value": row.portfolio_value,
+                "peak_portfolio_value": row.peak_portfolio_value,
+                "drawdown_pct": row.drawdown_pct,
+                "total_exposure_pct": row.total_exposure_pct,
+                "open_position_count": row.open_position_count,
+                "halted": row.halted,
+                "source_run_id": str(row.source_run_id),
+                "reconciliation_hash": row.reconciliation_hash,
+                "row_hash": row.row_hash,
+            },
+        )
+
+    def build_risk_hourly_state_row(
+        self,
+        *,
+        run_seed_hash: str,
+        run_mode: str,
+        account_id: int,
+        hour_ts_utc: datetime,
+        source_run_id: UUID,
+        portfolio_value: Decimal,
+        peak_portfolio_value: Decimal,
+        drawdown_pct: Decimal,
+        max_total_exposure_pct: Decimal,
+        max_cluster_exposure_pct: Decimal,
+        kill_switch_active: bool,
+        kill_switch_reason: Optional[str],
+        evaluated_at_utc: datetime,
+    ) -> RiskHourlyStateRow:
+        drawdown = normalize_decimal(drawdown_pct, NUMERIC_10)
+        portfolio_val = normalize_decimal(portfolio_value, NUMERIC_18)
+        peak_val = normalize_decimal(max(peak_portfolio_value, portfolio_val), NUMERIC_18)
+        max_total = normalize_decimal(max_total_exposure_pct, NUMERIC_10)
+        max_cluster = normalize_decimal(max_cluster_exposure_pct, NUMERIC_10)
+
+        if max_total <= 0 or max_total > Decimal("0.2000000000"):
+            raise DeterministicAbortError("max_total_exposure_pct outside schema range.")
+        if max_cluster <= 0 or max_cluster > Decimal("0.0800000000"):
+            raise DeterministicAbortError("max_cluster_exposure_pct outside schema range.")
+
+        if drawdown < Decimal("0.1000000000"):
+            drawdown_tier = "NORMAL"
+            base_risk_fraction = Decimal("0.0200000000")
+            max_concurrent_positions = 10
+            halt_new_entries = False
+            requires_manual_review = False
+        elif drawdown < Decimal("0.1500000000"):
+            drawdown_tier = "DD10"
+            base_risk_fraction = Decimal("0.0150000000")
+            max_concurrent_positions = 10
+            halt_new_entries = False
+            requires_manual_review = False
+        elif drawdown < Decimal("0.2000000000"):
+            drawdown_tier = "DD15"
+            base_risk_fraction = Decimal("0.0100000000")
+            max_concurrent_positions = 5
+            halt_new_entries = False
+            requires_manual_review = False
+        else:
+            drawdown_tier = "HALT20"
+            base_risk_fraction = Decimal("0.0000000000")
+            max_concurrent_positions = 0
+            halt_new_entries = True
+            requires_manual_review = True
+
+        normalized_base = normalize_decimal(base_risk_fraction, NUMERIC_10)
+        normalized_reason = kill_switch_reason
+        if kill_switch_active and (normalized_reason is None or not normalized_reason.strip()):
+            normalized_reason = "DETERMINISTIC_KILL_SWITCH"
+        state_hash = self.build_risk_state_hash(
+            run_seed_hash=run_seed_hash,
+            run_mode=run_mode,
+            account_id=account_id,
+            hour_ts_utc=hour_ts_utc,
+            portfolio_value=portfolio_val,
+            peak_portfolio_value=peak_val,
+            drawdown_pct=drawdown,
+            drawdown_tier=drawdown_tier,
+            base_risk_fraction=normalized_base,
+            max_concurrent_positions=max_concurrent_positions,
+            max_total_exposure_pct=max_total,
+            max_cluster_exposure_pct=max_cluster,
+            halt_new_entries=halt_new_entries,
+            kill_switch_active=kill_switch_active,
+            kill_switch_reason=normalized_reason,
+            requires_manual_review=requires_manual_review,
+            evaluated_at_utc=evaluated_at_utc,
+            source_run_id=source_run_id,
+        )
+        row = RiskHourlyStateRow(
+            run_mode=run_mode,
+            account_id=account_id,
+            hour_ts_utc=hour_ts_utc,
+            portfolio_value=portfolio_val,
+            peak_portfolio_value=peak_val,
+            drawdown_pct=drawdown,
+            drawdown_tier=drawdown_tier,
+            base_risk_fraction=normalized_base,
+            max_concurrent_positions=max_concurrent_positions,
+            max_total_exposure_pct=max_total,
+            max_cluster_exposure_pct=max_cluster,
+            halt_new_entries=halt_new_entries,
+            kill_switch_active=kill_switch_active,
+            kill_switch_reason=normalized_reason,
+            requires_manual_review=requires_manual_review,
+            evaluated_at_utc=evaluated_at_utc,
+            source_run_id=source_run_id,
+            state_hash=state_hash,
+            row_hash="",
+        )
+        row_hash = self.build_risk_row_hash(run_seed_hash=run_seed_hash, row=row)
+        return RiskHourlyStateRow(
+            run_mode=row.run_mode,
+            account_id=row.account_id,
+            hour_ts_utc=row.hour_ts_utc,
+            portfolio_value=row.portfolio_value,
+            peak_portfolio_value=row.peak_portfolio_value,
+            drawdown_pct=row.drawdown_pct,
+            drawdown_tier=row.drawdown_tier,
+            base_risk_fraction=row.base_risk_fraction,
+            max_concurrent_positions=row.max_concurrent_positions,
+            max_total_exposure_pct=row.max_total_exposure_pct,
+            max_cluster_exposure_pct=row.max_cluster_exposure_pct,
+            halt_new_entries=row.halt_new_entries,
+            kill_switch_active=row.kill_switch_active,
+            kill_switch_reason=row.kill_switch_reason,
+            requires_manual_review=row.requires_manual_review,
+            evaluated_at_utc=row.evaluated_at_utc,
+            source_run_id=row.source_run_id,
+            state_hash=row.state_hash,
+            row_hash=row_hash,
+        )
+
+    def insert_risk_hourly_state(self, row: RiskHourlyStateRow) -> None:
+        self._db.execute(
+            """
+            INSERT INTO risk_hourly_state (
+                run_mode, account_id, hour_ts_utc, portfolio_value, peak_portfolio_value,
+                drawdown_pct, drawdown_tier, base_risk_fraction, max_concurrent_positions,
+                max_total_exposure_pct, max_cluster_exposure_pct, halt_new_entries,
+                kill_switch_active, kill_switch_reason, requires_manual_review,
+                evaluated_at_utc, source_run_id, state_hash, row_hash
+            ) VALUES (
+                :run_mode, :account_id, :hour_ts_utc, :portfolio_value, :peak_portfolio_value,
+                :drawdown_pct, :drawdown_tier, :base_risk_fraction, :max_concurrent_positions,
+                :max_total_exposure_pct, :max_cluster_exposure_pct, :halt_new_entries,
+                :kill_switch_active, :kill_switch_reason, :requires_manual_review,
+                :evaluated_at_utc, :source_run_id, :state_hash, :row_hash
+            )
+            """,
+            {
+                "run_mode": row.run_mode,
+                "account_id": row.account_id,
+                "hour_ts_utc": row.hour_ts_utc,
+                "portfolio_value": row.portfolio_value,
+                "peak_portfolio_value": row.peak_portfolio_value,
+                "drawdown_pct": row.drawdown_pct,
+                "drawdown_tier": row.drawdown_tier,
+                "base_risk_fraction": row.base_risk_fraction,
+                "max_concurrent_positions": row.max_concurrent_positions,
+                "max_total_exposure_pct": row.max_total_exposure_pct,
+                "max_cluster_exposure_pct": row.max_cluster_exposure_pct,
+                "halt_new_entries": row.halt_new_entries,
+                "kill_switch_active": row.kill_switch_active,
+                "kill_switch_reason": row.kill_switch_reason,
+                "requires_manual_review": row.requires_manual_review,
+                "evaluated_at_utc": row.evaluated_at_utc,
+                "source_run_id": str(row.source_run_id),
+                "state_hash": row.state_hash,
+                "row_hash": row.row_hash,
+            },
+        )
+
+    def build_cluster_exposure_hourly_state_row(
+        self,
+        *,
+        run_seed_hash: str,
+        run_mode: str,
+        account_id: int,
+        cluster_id: int,
+        hour_ts_utc: datetime,
+        source_run_id: UUID,
+        gross_exposure_notional: Decimal,
+        portfolio_value: Decimal,
+        max_cluster_exposure_pct: Decimal,
+        parent_risk_hash: str,
+    ) -> ClusterExposureHourlyStateRow:
+        gross_exposure = normalize_decimal(gross_exposure_notional, NUMERIC_18)
+        portfolio_val = normalize_decimal(portfolio_value, NUMERIC_18)
+        exposure_pct = (
+            normalize_decimal(gross_exposure / portfolio_val, NUMERIC_10)
+            if portfolio_val > 0
+            else Decimal("0").quantize(NUMERIC_10)
+        )
+        max_cluster = normalize_decimal(max_cluster_exposure_pct, NUMERIC_10)
+        state_hash = self.build_cluster_state_hash(
+            run_seed_hash=run_seed_hash,
+            run_mode=run_mode,
+            account_id=account_id,
+            cluster_id=cluster_id,
+            hour_ts_utc=hour_ts_utc,
+            source_run_id=source_run_id,
+            gross_exposure_notional=gross_exposure,
+            exposure_pct=exposure_pct,
+            max_cluster_exposure_pct=max_cluster,
+            parent_risk_hash=parent_risk_hash,
+        )
+        row = ClusterExposureHourlyStateRow(
+            run_mode=run_mode,
+            account_id=account_id,
+            cluster_id=cluster_id,
+            hour_ts_utc=hour_ts_utc,
+            source_run_id=source_run_id,
+            gross_exposure_notional=gross_exposure,
+            exposure_pct=exposure_pct,
+            max_cluster_exposure_pct=max_cluster,
+            state_hash=state_hash,
+            parent_risk_hash=parent_risk_hash,
+            row_hash="",
+        )
+        row_hash = self.build_cluster_row_hash(run_seed_hash=run_seed_hash, row=row)
+        return ClusterExposureHourlyStateRow(
+            run_mode=row.run_mode,
+            account_id=row.account_id,
+            cluster_id=row.cluster_id,
+            hour_ts_utc=row.hour_ts_utc,
+            source_run_id=row.source_run_id,
+            gross_exposure_notional=row.gross_exposure_notional,
+            exposure_pct=row.exposure_pct,
+            max_cluster_exposure_pct=row.max_cluster_exposure_pct,
+            state_hash=row.state_hash,
+            parent_risk_hash=row.parent_risk_hash,
+            row_hash=row_hash,
+        )
+
+    def insert_cluster_exposure_hourly_state(self, row: ClusterExposureHourlyStateRow) -> None:
+        self._db.execute(
+            """
+            INSERT INTO cluster_exposure_hourly_state (
+                run_mode, account_id, cluster_id, hour_ts_utc, source_run_id,
+                gross_exposure_notional, exposure_pct, max_cluster_exposure_pct,
+                state_hash, parent_risk_hash, row_hash
+            ) VALUES (
+                :run_mode, :account_id, :cluster_id, :hour_ts_utc, :source_run_id,
+                :gross_exposure_notional, :exposure_pct, :max_cluster_exposure_pct,
+                :state_hash, :parent_risk_hash, :row_hash
+            )
+            """,
+            {
+                "run_mode": row.run_mode,
+                "account_id": row.account_id,
+                "cluster_id": row.cluster_id,
+                "hour_ts_utc": row.hour_ts_utc,
+                "source_run_id": str(row.source_run_id),
+                "gross_exposure_notional": row.gross_exposure_notional,
+                "exposure_pct": row.exposure_pct,
+                "max_cluster_exposure_pct": row.max_cluster_exposure_pct,
+                "state_hash": row.state_hash,
+                "parent_risk_hash": row.parent_risk_hash,
+                "row_hash": row.row_hash,
             },
         )
 

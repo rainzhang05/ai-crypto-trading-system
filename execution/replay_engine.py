@@ -11,6 +11,7 @@ from uuid import UUID
 from execution.activation_gate import enforce_activation_gate
 from execution.decision_engine import (
     NUMERIC_18,
+    NUMERIC_10,
     deterministic_decision,
     normalize_decimal,
     stable_hash,
@@ -20,6 +21,8 @@ from execution.deterministic_context import (
     DeterministicContextBuilder,
     ExecutionContext,
     PredictionState,
+    PriorEconomicState,
+    RunContextState,
 )
 from execution.exchange_adapter import OrderAttemptRequest
 from execution.exchange_simulator import DeterministicExchangeSimulator
@@ -39,11 +42,15 @@ from execution.risk_runtime import (
 )
 from execution.runtime_writer import (
     AppendOnlyRuntimeWriter,
+    CashLedgerRow,
+    ClusterExposureHourlyStateRow,
     ExecutedTradeRow,
     OrderFillRow,
     OrderRequestRow,
+    PortfolioHourlyStateRow,
     PositionLotRow,
     RiskEventRow,
+    RiskHourlyStateRow,
     RuntimeWriteResult,
     TradeSignalRow,
 )
@@ -98,6 +105,13 @@ class _LotView:
     historical_consumed_qty: Decimal
 
 
+@dataclass(frozen=True)
+class _Phase5HourlyStateResult:
+    portfolio_row: PortfolioHourlyStateRow
+    risk_row: RiskHourlyStateRow
+    cluster_rows: tuple[ClusterExposureHourlyStateRow, ...]
+
+
 _RETRY_BACKOFF_MINUTES: tuple[int, ...] = (1, 2, 4)
 
 
@@ -111,7 +125,6 @@ def execute_hour(
 ) -> RuntimeWriteResult:
     """Execute deterministic runtime writes for one run/account/hour key."""
     builder = DeterministicContextBuilder(db)
-    context = builder.build_context(run_id, account_id, run_mode, hour_ts_utc)
     writer = AppendOnlyRuntimeWriter(db)
 
     begin = getattr(db, "begin", None)
@@ -126,9 +139,20 @@ def execute_hour(
 
         # Preserve and validate ledger continuity before writes.
         writer.assert_ledger_continuity(
-            account_id=context.run_context.account_id,
-            run_mode=context.run_context.run_mode,
+            account_id=account_id,
+            run_mode=run_mode,
         )
+
+        phase5_state = _ensure_phase5_hourly_state(
+            db=db,
+            builder=builder,
+            writer=writer,
+            run_id=run_id,
+            account_id=account_id,
+            run_mode=run_mode,
+            hour_ts_utc=hour_ts_utc,
+        )
+        context = builder.build_context(run_id, account_id, run_mode, hour_ts_utc)
         planned = _plan_runtime_artifacts(
             context=context,
             writer=writer,
@@ -148,6 +172,15 @@ def execute_hour(
         for risk_event in planned.risk_events:
             writer.insert_risk_event(risk_event)
 
+        cash_rows = _ensure_phase5_cash_ledger_rows(
+            db=db,
+            writer=writer,
+            context=context,
+            order_requests=planned.order_requests,
+            order_fills=planned.order_fills,
+            prior_ledger_state=context.prior_economic_state,
+        )
+
         # Preserve and validate ledger continuity after writes.
         writer.assert_ledger_continuity(
             account_id=context.run_context.account_id,
@@ -156,7 +189,18 @@ def execute_hour(
 
         if tx_started and callable(commit):
             commit()
-        return planned
+        return RuntimeWriteResult(
+            trade_signals=planned.trade_signals,
+            order_requests=planned.order_requests,
+            order_fills=planned.order_fills,
+            position_lots=planned.position_lots,
+            executed_trades=planned.executed_trades,
+            risk_events=planned.risk_events,
+            cash_ledger_rows=cash_rows,
+            portfolio_hourly_states=(phase5_state.portfolio_row,),
+            cluster_exposure_hourly_states=phase5_state.cluster_rows,
+            risk_hourly_states=(phase5_state.risk_row,),
+        )
     except Exception:
         if tx_started and callable(rollback):
             rollback()
@@ -186,12 +230,28 @@ def replay_hour(
 
     run_mode = str(run_ctx["run_mode"])
     builder = DeterministicContextBuilder(db)
-    context = builder.build_context(run_id, account_id, run_mode, hour_ts_utc)
     writer = AppendOnlyRuntimeWriter(db)
+    phase5_state = _build_expected_phase5_hourly_state(
+        db=db,
+        builder=builder,
+        writer=writer,
+        run_id=run_id,
+        account_id=account_id,
+        run_mode=run_mode,
+        hour_ts_utc=hour_ts_utc,
+    )
+    context = builder.build_context(run_id, account_id, run_mode, hour_ts_utc)
     expected = _plan_runtime_artifacts(
         context=context,
         writer=writer,
         risk_profile=risk_profile,
+    )
+    expected_cash_rows = _build_expected_cash_ledger_rows(
+        writer=writer,
+        context=context,
+        order_requests=expected.order_requests,
+        order_fills=expected.order_fills,
+        prior_ledger_state=context.prior_economic_state,
     )
 
     stored_signals = db.fetch_all(
@@ -260,6 +320,68 @@ def replay_hour(
         """,
         {"run_id": str(run_id), "account_id": account_id, "hour_ts_utc": hour_ts_utc},
     )
+    stored_cash_rows = db.fetch_all(
+        """
+        SELECT ledger_seq, row_hash
+        FROM cash_ledger
+        WHERE run_id = :run_id
+          AND account_id = :account_id
+          AND origin_hour_ts_utc = :hour_ts_utc
+        ORDER BY ledger_seq ASC
+        """,
+        {"run_id": str(run_id), "account_id": account_id, "hour_ts_utc": hour_ts_utc},
+    )
+    stored_portfolio_rows = db.fetch_all(
+        """
+        SELECT hour_ts_utc, row_hash
+        FROM portfolio_hourly_state
+        WHERE source_run_id = :run_id
+          AND account_id = :account_id
+          AND run_mode = :run_mode
+          AND hour_ts_utc = :hour_ts_utc
+        ORDER BY hour_ts_utc ASC
+        """,
+        {
+            "run_id": str(run_id),
+            "account_id": account_id,
+            "run_mode": run_mode,
+            "hour_ts_utc": hour_ts_utc,
+        },
+    )
+    stored_cluster_rows = db.fetch_all(
+        """
+        SELECT cluster_id, row_hash
+        FROM cluster_exposure_hourly_state
+        WHERE source_run_id = :run_id
+          AND account_id = :account_id
+          AND run_mode = :run_mode
+          AND hour_ts_utc = :hour_ts_utc
+        ORDER BY cluster_id ASC
+        """,
+        {
+            "run_id": str(run_id),
+            "account_id": account_id,
+            "run_mode": run_mode,
+            "hour_ts_utc": hour_ts_utc,
+        },
+    )
+    stored_risk_rows = db.fetch_all(
+        """
+        SELECT hour_ts_utc, row_hash
+        FROM risk_hourly_state
+        WHERE source_run_id = :run_id
+          AND account_id = :account_id
+          AND run_mode = :run_mode
+          AND hour_ts_utc = :hour_ts_utc
+        ORDER BY hour_ts_utc ASC
+        """,
+        {
+            "run_id": str(run_id),
+            "account_id": account_id,
+            "run_mode": run_mode,
+            "hour_ts_utc": hour_ts_utc,
+        },
+    )
 
     mismatches: list[ReplayMismatch] = []
     mismatches.extend(_compare_signals(expected.trade_signals, stored_signals))
@@ -268,8 +390,502 @@ def replay_hour(
     mismatches.extend(_compare_lots(expected.position_lots, stored_lots))
     mismatches.extend(_compare_trades(expected.executed_trades, stored_trades))
     mismatches.extend(_compare_risk_events(expected.risk_events, stored_risk_events))
+    mismatches.extend(_compare_cash_ledger(expected_cash_rows, stored_cash_rows))
+    mismatches.extend(_compare_portfolio_hourly_states((phase5_state.portfolio_row,), stored_portfolio_rows))
+    mismatches.extend(
+        _compare_cluster_exposure_hourly_states(phase5_state.cluster_rows, stored_cluster_rows)
+    )
+    mismatches.extend(_compare_risk_hourly_states((phase5_state.risk_row,), stored_risk_rows))
 
     return ReplayReport(mismatch_count=len(mismatches), mismatches=tuple(mismatches))
+
+
+def _to_decimal(value: Any) -> Decimal:
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _to_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value))
+
+
+def _build_expected_phase5_hourly_state(
+    db: RuntimeDatabase,
+    builder: DeterministicContextBuilder,
+    writer: AppendOnlyRuntimeWriter,
+    run_id: UUID,
+    account_id: int,
+    run_mode: str,
+    hour_ts_utc: datetime,
+) -> _Phase5HourlyStateResult:
+    normalized_mode = run_mode.upper()
+    run_context = builder._load_run_context(run_id, account_id, normalized_mode, hour_ts_utc)
+
+    prediction_rows = db.fetch_all(
+        """
+        SELECT asset_id
+        FROM model_prediction
+        WHERE run_id = :run_id
+          AND account_id = :account_id
+          AND run_mode = :run_mode
+          AND hour_ts_utc = :hour_ts_utc
+        ORDER BY asset_id ASC
+        """,
+        {
+            "run_id": str(run_id),
+            "account_id": account_id,
+            "run_mode": normalized_mode,
+            "hour_ts_utc": hour_ts_utc,
+        },
+    )
+    predicted_assets = {int(row["asset_id"]) for row in prediction_rows}
+    if not predicted_assets:
+        raise DeterministicAbortError("No model_prediction rows available for execution hour.")
+
+    position_rows = db.fetch_all(
+        """
+        SELECT asset_id, quantity
+        FROM position_hourly_state
+        WHERE run_mode = :run_mode
+          AND account_id = :account_id
+          AND hour_ts_utc = :hour_ts_utc
+          AND source_run_id = :source_run_id
+        ORDER BY asset_id ASC
+        """,
+        {
+            "run_mode": normalized_mode,
+            "account_id": account_id,
+            "hour_ts_utc": hour_ts_utc,
+            "source_run_id": str(run_id),
+        },
+    )
+    open_inventory_assets: set[int] = set()
+    position_qty_by_asset: dict[int, Decimal] = {}
+    for row in position_rows:
+        asset_id = int(row["asset_id"])
+        quantity = normalize_decimal(_to_decimal(row["quantity"]), NUMERIC_18)
+        position_qty_by_asset[asset_id] = quantity
+        if quantity > 0:
+            open_inventory_assets.add(asset_id)
+
+    required_assets = sorted(predicted_assets | open_inventory_assets)
+    memberships = _load_active_memberships(db, required_assets, hour_ts_utc)
+
+    prior_ledger = builder.load_prior_ledger_state(account_id, normalized_mode, hour_ts_utc)
+    prior_portfolio = builder.load_prior_portfolio_state(account_id, normalized_mode, hour_ts_utc)
+    prior_risk = builder.load_prior_risk_state(account_id, normalized_mode, hour_ts_utc)
+    _ = builder.load_prior_cluster_states(account_id, normalized_mode, hour_ts_utc)
+
+    cash_balance = _resolve_starting_cash_balance(
+        builder=builder,
+        run_context=run_context,
+        run_mode=normalized_mode,
+        prior_ledger=prior_ledger,
+        prior_portfolio=prior_portfolio,
+    )
+
+    market_value = Decimal("0").quantize(NUMERIC_18)
+    cluster_notional: dict[int, Decimal] = {}
+    open_position_count = 0
+    for asset_id, quantity in sorted(position_qty_by_asset.items()):
+        if quantity <= 0:
+            continue
+        mark_price = _resolve_mark_price(
+            db=db,
+            account_id=account_id,
+            run_mode=normalized_mode,
+            asset_id=asset_id,
+            hour_ts_utc=hour_ts_utc,
+        )
+        if mark_price is None:
+            raise DeterministicAbortError(
+                f"Unable to determine mark price for held asset_id={asset_id} at {hour_ts_utc}."
+            )
+        mark_notional = normalize_decimal(quantity * mark_price, NUMERIC_18)
+        market_value = normalize_decimal(market_value + mark_notional, NUMERIC_18)
+        cluster_id = memberships[asset_id]
+        previous_cluster = cluster_notional.get(cluster_id, Decimal("0").quantize(NUMERIC_18))
+        cluster_notional[cluster_id] = normalize_decimal(previous_cluster + mark_notional, NUMERIC_18)
+        open_position_count += 1
+
+    provisional_portfolio_value = normalize_decimal(cash_balance + market_value, NUMERIC_18)
+    peak_candidates = [provisional_portfolio_value]
+    if prior_portfolio is not None:
+        peak_candidates.append(prior_portfolio.peak_portfolio_value)
+    if prior_risk is not None:
+        peak_candidates.append(prior_risk.peak_portfolio_value)
+    peak_value = normalize_decimal(max(peak_candidates), NUMERIC_18)
+
+    max_total_exposure_pct = (
+        prior_risk.max_total_exposure_pct if prior_risk is not None else Decimal("0.2000000000")
+    )
+    max_cluster_exposure_pct = (
+        prior_risk.max_cluster_exposure_pct if prior_risk is not None else Decimal("0.0800000000")
+    )
+    kill_switch_active = prior_risk.kill_switch_active if prior_risk is not None else False
+    kill_switch_reason = prior_risk.kill_switch_reason if prior_risk is not None else None
+
+    risk_row = writer.build_risk_hourly_state_row(
+        run_seed_hash=run_context.run_seed_hash,
+        run_mode=normalized_mode,
+        account_id=account_id,
+        hour_ts_utc=hour_ts_utc,
+        source_run_id=run_id,
+        portfolio_value=provisional_portfolio_value,
+        peak_portfolio_value=peak_value,
+        drawdown_pct=_drawdown_pct(peak_value=peak_value, portfolio_value=provisional_portfolio_value),
+        max_total_exposure_pct=max_total_exposure_pct,
+        max_cluster_exposure_pct=max_cluster_exposure_pct,
+        kill_switch_active=kill_switch_active,
+        kill_switch_reason=kill_switch_reason,
+        evaluated_at_utc=hour_ts_utc,
+    )
+    portfolio_row = writer.build_portfolio_hourly_state_row(
+        run_seed_hash=run_context.run_seed_hash,
+        run_mode=normalized_mode,
+        account_id=account_id,
+        hour_ts_utc=hour_ts_utc,
+        source_run_id=run_id,
+        cash_balance=cash_balance,
+        market_value=market_value,
+        peak_portfolio_value=peak_value,
+        open_position_count=open_position_count,
+        halted=(risk_row.halt_new_entries or risk_row.kill_switch_active),
+    )
+
+    cluster_ids = sorted({memberships[asset_id] for asset_id in required_assets})
+    cluster_rows = tuple(
+        writer.build_cluster_exposure_hourly_state_row(
+            run_seed_hash=run_context.run_seed_hash,
+            run_mode=normalized_mode,
+            account_id=account_id,
+            cluster_id=cluster_id,
+            hour_ts_utc=hour_ts_utc,
+            source_run_id=run_id,
+            gross_exposure_notional=cluster_notional.get(cluster_id, Decimal("0").quantize(NUMERIC_18)),
+            portfolio_value=portfolio_row.portfolio_value,
+            max_cluster_exposure_pct=risk_row.max_cluster_exposure_pct,
+            parent_risk_hash=risk_row.row_hash,
+        )
+        for cluster_id in cluster_ids
+    )
+
+    return _Phase5HourlyStateResult(
+        portfolio_row=portfolio_row,
+        risk_row=risk_row,
+        cluster_rows=cluster_rows,
+    )
+
+
+def _ensure_phase5_hourly_state(
+    db: RuntimeDatabase,
+    builder: DeterministicContextBuilder,
+    writer: AppendOnlyRuntimeWriter,
+    run_id: UUID,
+    account_id: int,
+    run_mode: str,
+    hour_ts_utc: datetime,
+) -> _Phase5HourlyStateResult:
+    expected = _build_expected_phase5_hourly_state(
+        db=db,
+        builder=builder,
+        writer=writer,
+        run_id=run_id,
+        account_id=account_id,
+        run_mode=run_mode,
+        hour_ts_utc=hour_ts_utc,
+    )
+
+    existing_portfolio = db.fetch_one(
+        """
+        SELECT row_hash
+        FROM portfolio_hourly_state
+        WHERE run_mode = :run_mode
+          AND account_id = :account_id
+          AND hour_ts_utc = :hour_ts_utc
+        """,
+        {"run_mode": run_mode.upper(), "account_id": account_id, "hour_ts_utc": hour_ts_utc},
+    )
+    if existing_portfolio is None:
+        writer.insert_portfolio_hourly_state(expected.portfolio_row)
+    elif str(existing_portfolio["row_hash"]) != expected.portfolio_row.row_hash:
+        raise DeterministicAbortError("portfolio_hourly_state hash mismatch for execution hour.")
+
+    existing_risk = db.fetch_one(
+        """
+        SELECT row_hash
+        FROM risk_hourly_state
+        WHERE run_mode = :run_mode
+          AND account_id = :account_id
+          AND hour_ts_utc = :hour_ts_utc
+          AND source_run_id = :source_run_id
+        """,
+        {
+            "run_mode": run_mode.upper(),
+            "account_id": account_id,
+            "hour_ts_utc": hour_ts_utc,
+            "source_run_id": str(run_id),
+        },
+    )
+    if existing_risk is None:
+        writer.insert_risk_hourly_state(expected.risk_row)
+    elif str(existing_risk["row_hash"]) != expected.risk_row.row_hash:
+        raise DeterministicAbortError("risk_hourly_state hash mismatch for execution hour.")
+
+    stored_clusters = db.fetch_all(
+        """
+        SELECT cluster_id, row_hash
+        FROM cluster_exposure_hourly_state
+        WHERE run_mode = :run_mode
+          AND account_id = :account_id
+          AND hour_ts_utc = :hour_ts_utc
+          AND source_run_id = :source_run_id
+        ORDER BY cluster_id ASC
+        """,
+        {
+            "run_mode": run_mode.upper(),
+            "account_id": account_id,
+            "hour_ts_utc": hour_ts_utc,
+            "source_run_id": str(run_id),
+        },
+    )
+    expected_clusters = {row.cluster_id: row for row in expected.cluster_rows}
+    stored_cluster_map = {int(row["cluster_id"]): row for row in stored_clusters}
+
+    for cluster_id in sorted(stored_cluster_map):
+        if cluster_id not in expected_clusters:
+            raise DeterministicAbortError(
+                f"cluster_exposure_hourly_state contains unexpected cluster_id={cluster_id} for hour."
+            )
+
+    for cluster_id, expected_row in expected_clusters.items():
+        stored_row = stored_cluster_map.get(cluster_id)
+        if stored_row is None:
+            writer.insert_cluster_exposure_hourly_state(expected_row)
+            continue
+        if str(stored_row["row_hash"]) != expected_row.row_hash:
+            raise DeterministicAbortError(
+                f"cluster_exposure_hourly_state hash mismatch for cluster_id={cluster_id}."
+            )
+
+    return expected
+
+
+def _resolve_starting_cash_balance(
+    *,
+    builder: DeterministicContextBuilder,
+    run_context: RunContextState,
+    run_mode: str,
+    prior_ledger: Optional[PriorEconomicState],
+    prior_portfolio: Any,
+) -> Decimal:
+    if prior_ledger is not None:
+        return normalize_decimal(prior_ledger.balance_after, NUMERIC_18)
+    if run_mode == "BACKTEST":
+        if run_context.backtest_run_id is None:
+            raise DeterministicAbortError("BACKTEST run_context missing backtest_run_id.")
+        return normalize_decimal(
+            builder.load_backtest_initial_capital(run_context.backtest_run_id),
+            NUMERIC_18,
+        )
+    if prior_portfolio is not None:
+        return normalize_decimal(prior_portfolio.cash_balance, NUMERIC_18)
+    raise DeterministicAbortError(
+        f"{run_mode} requires prior portfolio/ledger bootstrap when no prior ledger exists."
+    )
+
+
+def _drawdown_pct(*, peak_value: Decimal, portfolio_value: Decimal) -> Decimal:
+    if peak_value <= 0:
+        return Decimal("0").quantize(NUMERIC_10)
+    return normalize_decimal((peak_value - portfolio_value) / peak_value, NUMERIC_10)
+
+
+def _load_active_memberships(
+    db: RuntimeDatabase,
+    asset_ids: Sequence[int],
+    hour_ts_utc: datetime,
+) -> dict[int, int]:
+    if not asset_ids:
+        return {}
+    rows = db.fetch_all(
+        """
+        SELECT asset_id, cluster_id, effective_from_utc
+        FROM asset_cluster_membership
+        WHERE effective_from_utc <= :hour_ts_utc
+          AND (effective_to_utc IS NULL OR effective_to_utc > :hour_ts_utc)
+        ORDER BY asset_id ASC, effective_from_utc DESC, membership_id DESC
+        """,
+        {"hour_ts_utc": hour_ts_utc},
+    )
+    target = set(asset_ids)
+    by_asset: dict[int, int] = {}
+    for row in rows:
+        asset_id = int(row["asset_id"])
+        if asset_id not in target or asset_id in by_asset:
+            continue
+        by_asset[asset_id] = int(row["cluster_id"])
+    missing = sorted(target - set(by_asset))
+    if missing:
+        raise DeterministicAbortError(f"Missing cluster membership for assets={missing}.")
+    return by_asset
+
+
+def _resolve_mark_price(
+    *,
+    db: RuntimeDatabase,
+    account_id: int,
+    run_mode: str,
+    asset_id: int,
+    hour_ts_utc: datetime,
+) -> Optional[Decimal]:
+    snapshot = db.fetch_one(
+        """
+        SELECT best_bid_price, best_ask_price
+        FROM order_book_snapshot
+        WHERE asset_id = :asset_id
+          AND snapshot_ts_utc <= :hour_ts_utc
+        ORDER BY snapshot_ts_utc DESC, row_hash DESC
+        LIMIT 1
+        """,
+        {"asset_id": asset_id, "hour_ts_utc": hour_ts_utc},
+    )
+    if snapshot is not None:
+        bid = _to_decimal(snapshot["best_bid_price"])
+        ask = _to_decimal(snapshot["best_ask_price"])
+        if bid > 0 and ask > 0:
+            midpoint = normalize_decimal((bid + ask) / Decimal("2"), NUMERIC_18)
+            return midpoint
+
+    ohlcv = db.fetch_one(
+        """
+        SELECT close_price
+        FROM market_ohlcv_hourly
+        WHERE asset_id = :asset_id
+          AND hour_ts_utc <= :hour_ts_utc
+        ORDER BY hour_ts_utc DESC, source_venue ASC, row_hash ASC
+        LIMIT 1
+        """,
+        {"asset_id": asset_id, "hour_ts_utc": hour_ts_utc},
+    )
+    if ohlcv is not None:
+        close_price = _to_decimal(ohlcv["close_price"])
+        if close_price > 0:
+            return normalize_decimal(close_price, NUMERIC_18)
+
+    historical_fill = db.fetch_one(
+        """
+        SELECT fill_price
+        FROM order_fill
+        WHERE account_id = :account_id
+          AND run_mode = :run_mode
+          AND asset_id = :asset_id
+          AND fill_ts_utc < :hour_ts_utc
+        ORDER BY fill_ts_utc DESC, fill_id DESC
+        LIMIT 1
+        """,
+        {
+            "account_id": account_id,
+            "run_mode": run_mode,
+            "asset_id": asset_id,
+            "hour_ts_utc": hour_ts_utc,
+        },
+    )
+    if historical_fill is not None:
+        fill_price = _to_decimal(historical_fill["fill_price"])
+        if fill_price > 0:
+            return normalize_decimal(fill_price, NUMERIC_18)
+    return None
+
+
+def _build_expected_cash_ledger_rows(
+    *,
+    writer: AppendOnlyRuntimeWriter,
+    context: ExecutionContext,
+    order_requests: Sequence[OrderRequestRow],
+    order_fills: Sequence[OrderFillRow],
+    prior_ledger_state: Optional[PriorEconomicState],
+) -> tuple[CashLedgerRow, ...]:
+    order_side_by_id = {row.order_id: row.side for row in order_requests}
+    seq = (prior_ledger_state.ledger_seq + 1) if prior_ledger_state is not None else 1
+    prev_hash = prior_ledger_state.ledger_hash if prior_ledger_state is not None else None
+    if prior_ledger_state is not None:
+        balance_before = normalize_decimal(prior_ledger_state.balance_after, NUMERIC_18)
+    else:
+        balance_before = normalize_decimal(context.capital_state.cash_balance, NUMERIC_18)
+
+    rows: list[CashLedgerRow] = []
+    sorted_fills = sorted(order_fills, key=lambda item: (item.fill_ts_utc, str(item.fill_id)))
+    for fill in sorted_fills:
+        side = order_side_by_id.get(fill.order_id)
+        if side is None:
+            raise DeterministicAbortError(
+                f"Missing order_request side for order_fill order_id={fill.order_id}."
+            )
+        row = writer.build_cash_ledger_row(
+            context=context,
+            fill=fill,
+            order_side=side,
+            ledger_seq=seq,
+            balance_before=balance_before,
+            prev_ledger_hash=prev_hash,
+        )
+        rows.append(row)
+        seq += 1
+        prev_hash = row.ledger_hash
+        balance_before = row.balance_after
+    return tuple(rows)
+
+
+def _ensure_phase5_cash_ledger_rows(
+    *,
+    db: RuntimeDatabase,
+    writer: AppendOnlyRuntimeWriter,
+    context: ExecutionContext,
+    order_requests: Sequence[OrderRequestRow],
+    order_fills: Sequence[OrderFillRow],
+    prior_ledger_state: Optional[PriorEconomicState],
+) -> tuple[CashLedgerRow, ...]:
+    expected_rows = _build_expected_cash_ledger_rows(
+        writer=writer,
+        context=context,
+        order_requests=order_requests,
+        order_fills=order_fills,
+        prior_ledger_state=prior_ledger_state,
+    )
+    stored_rows = db.fetch_all(
+        """
+        SELECT ledger_seq, row_hash
+        FROM cash_ledger
+        WHERE run_id = :run_id
+          AND account_id = :account_id
+          AND origin_hour_ts_utc = :origin_hour_ts_utc
+        ORDER BY ledger_seq ASC
+        """,
+        {
+            "run_id": str(context.run_context.run_id),
+            "account_id": context.run_context.account_id,
+            "origin_hour_ts_utc": context.run_context.origin_hour_ts_utc,
+        },
+    )
+
+    expected_by_seq = {row.ledger_seq: row for row in expected_rows}
+    stored_by_seq = {int(row["ledger_seq"]): row for row in stored_rows}
+
+    for seq in sorted(stored_by_seq):
+        if seq not in expected_by_seq:
+            raise DeterministicAbortError(f"cash_ledger contains unexpected ledger_seq={seq}.")
+        if str(stored_by_seq[seq]["row_hash"]) != expected_by_seq[seq].row_hash:
+            raise DeterministicAbortError(f"cash_ledger hash mismatch for ledger_seq={seq}.")
+
+    for row in expected_rows:
+        if row.ledger_seq not in stored_by_seq:
+            writer.insert_cash_ledger(row)
+
+    return expected_rows
 
 
 def _plan_runtime_artifacts(
@@ -515,6 +1131,10 @@ def _plan_runtime_artifacts(
         position_lots=tuple(position_lots),
         executed_trades=tuple(executed_trades),
         risk_events=tuple(risk_events),
+        cash_ledger_rows=tuple(),
+        portfolio_hourly_states=tuple(),
+        cluster_exposure_hourly_states=tuple(),
+        risk_hourly_states=tuple(),
     )
 
 
@@ -545,7 +1165,26 @@ def _derive_order_intent(
 
     if signal.action == "ENTER" and signal.target_position_notional > 0:
         side = "BUY"
-        raw_qty = normalize_decimal(signal.target_position_notional, NUMERIC_18)
+        reference_price = _resolve_signal_reference_price(
+            context=context,
+            asset_id=signal.asset_id,
+            side="BUY",
+        )
+        if reference_price is None or reference_price <= 0:
+            events.append(
+                writer.build_risk_event_row(
+                    context=context,
+                    event_type="ORDER_LIFECYCLE",
+                    severity="MEDIUM",
+                    reason_code="ORDER_REFERENCE_PRICE_UNAVAILABLE",
+                    detail=(
+                        f"signal_id={signal.signal_id} has no order-book/ohlcv reference "
+                        "price for ENTER sizing."
+                    ),
+                )
+            )
+            return None, tuple(events)
+        raw_qty = normalize_decimal(signal.target_position_notional / reference_price, NUMERIC_18)
         requested_notional = normalize_decimal(signal.target_position_notional, NUMERIC_18)
     elif signal.action == "EXIT":
         side = "SELL"
@@ -895,6 +1534,34 @@ def _attempt_requested_notional(intent: _OrderIntent, requested_qty: Decimal) ->
     return notional
 
 
+def _resolve_signal_reference_price(
+    *,
+    context: ExecutionContext,
+    asset_id: int,
+    side: str,
+) -> Optional[Decimal]:
+    snapshot = context.find_latest_order_book_snapshot(
+        asset_id=asset_id,
+        as_of_ts_utc=context.run_context.origin_hour_ts_utc,
+    )
+    if snapshot is not None:
+        if side == "BUY":
+            ask = normalize_decimal(snapshot.best_ask_price, NUMERIC_18)
+            if ask > 0:
+                return ask
+        else:
+            bid = normalize_decimal(snapshot.best_bid_price, NUMERIC_18)
+            if bid > 0:
+                return bid
+
+    candle = context.find_ohlcv(asset_id)
+    if candle is not None:
+        close = normalize_decimal(candle.close_price, NUMERIC_18)
+        if close > 0:
+            return close
+    return None
+
+
 def _round_down_to_lot_size(raw_qty: Decimal, lot_size: Decimal) -> Decimal:
     if raw_qty <= 0:
         return Decimal("0").quantize(NUMERIC_18)
@@ -1121,6 +1788,158 @@ def _compare_risk_events(
             mismatches.append(
                 ReplayMismatch(
                     "risk_event",
+                    key,
+                    "row_hash",
+                    expected_map[key].row_hash,
+                    str(stored_map[key]["row_hash"]),
+                )
+            )
+    return mismatches
+
+
+def _compare_cash_ledger(
+    expected: Sequence[CashLedgerRow],
+    stored: Sequence[Mapping[str, Any]],
+) -> list[ReplayMismatch]:
+    mismatches: list[ReplayMismatch] = []
+    expected_map = {str(row.ledger_seq): row for row in expected}
+    stored_map = {str(row["ledger_seq"]): row for row in stored}
+    all_keys = sorted(set(expected_map.keys()) | set(stored_map.keys()), key=int)
+    for key in all_keys:
+        if key not in expected_map:
+            mismatches.append(
+                ReplayMismatch("cash_ledger", key, "presence", "expected_absent", "stored_present")
+            )
+            continue
+        if key not in stored_map:
+            mismatches.append(
+                ReplayMismatch("cash_ledger", key, "presence", "expected_present", "stored_absent")
+            )
+            continue
+        if str(stored_map[key]["row_hash"]) != expected_map[key].row_hash:
+            mismatches.append(
+                ReplayMismatch(
+                    "cash_ledger",
+                    key,
+                    "row_hash",
+                    expected_map[key].row_hash,
+                    str(stored_map[key]["row_hash"]),
+                )
+            )
+    return mismatches
+
+
+def _compare_portfolio_hourly_states(
+    expected: Sequence[PortfolioHourlyStateRow],
+    stored: Sequence[Mapping[str, Any]],
+) -> list[ReplayMismatch]:
+    mismatches: list[ReplayMismatch] = []
+    expected_map = {str(row.hour_ts_utc): row for row in expected}
+    stored_map = {str(row["hour_ts_utc"]): row for row in stored}
+    all_keys = sorted(set(expected_map.keys()) | set(stored_map.keys()))
+    for key in all_keys:
+        if key not in expected_map:
+            mismatches.append(
+                ReplayMismatch(
+                    "portfolio_hourly_state",
+                    key,
+                    "presence",
+                    "expected_absent",
+                    "stored_present",
+                )
+            )
+            continue
+        if key not in stored_map:
+            mismatches.append(
+                ReplayMismatch(
+                    "portfolio_hourly_state",
+                    key,
+                    "presence",
+                    "expected_present",
+                    "stored_absent",
+                )
+            )
+            continue
+        if str(stored_map[key]["row_hash"]) != expected_map[key].row_hash:
+            mismatches.append(
+                ReplayMismatch(
+                    "portfolio_hourly_state",
+                    key,
+                    "row_hash",
+                    expected_map[key].row_hash,
+                    str(stored_map[key]["row_hash"]),
+                )
+            )
+    return mismatches
+
+
+def _compare_cluster_exposure_hourly_states(
+    expected: Sequence[ClusterExposureHourlyStateRow],
+    stored: Sequence[Mapping[str, Any]],
+) -> list[ReplayMismatch]:
+    mismatches: list[ReplayMismatch] = []
+    expected_map = {str(row.cluster_id): row for row in expected}
+    stored_map = {str(row["cluster_id"]): row for row in stored}
+    all_keys = sorted(set(expected_map.keys()) | set(stored_map.keys()), key=int)
+    for key in all_keys:
+        if key not in expected_map:
+            mismatches.append(
+                ReplayMismatch(
+                    "cluster_exposure_hourly_state",
+                    key,
+                    "presence",
+                    "expected_absent",
+                    "stored_present",
+                )
+            )
+            continue
+        if key not in stored_map:
+            mismatches.append(
+                ReplayMismatch(
+                    "cluster_exposure_hourly_state",
+                    key,
+                    "presence",
+                    "expected_present",
+                    "stored_absent",
+                )
+            )
+            continue
+        if str(stored_map[key]["row_hash"]) != expected_map[key].row_hash:
+            mismatches.append(
+                ReplayMismatch(
+                    "cluster_exposure_hourly_state",
+                    key,
+                    "row_hash",
+                    expected_map[key].row_hash,
+                    str(stored_map[key]["row_hash"]),
+                )
+            )
+    return mismatches
+
+
+def _compare_risk_hourly_states(
+    expected: Sequence[RiskHourlyStateRow],
+    stored: Sequence[Mapping[str, Any]],
+) -> list[ReplayMismatch]:
+    mismatches: list[ReplayMismatch] = []
+    expected_map = {str(row.hour_ts_utc): row for row in expected}
+    stored_map = {str(row["hour_ts_utc"]): row for row in stored}
+    all_keys = sorted(set(expected_map.keys()) | set(stored_map.keys()))
+    for key in all_keys:
+        if key not in expected_map:
+            mismatches.append(
+                ReplayMismatch("risk_hourly_state", key, "presence", "expected_absent", "stored_present")
+            )
+            continue
+        if key not in stored_map:
+            mismatches.append(
+                ReplayMismatch("risk_hourly_state", key, "presence", "expected_present", "stored_absent")
+            )
+            continue
+        if str(stored_map[key]["row_hash"]) != expected_map[key].row_hash:
+            mismatches.append(
+                ReplayMismatch(
+                    "risk_hourly_state",
                     key,
                     "row_hash",
                     expected_map[key].row_hash,

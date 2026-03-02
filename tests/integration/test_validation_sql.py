@@ -75,3 +75,11 @@ def test_phase_4_validation_sql_returns_zero(pg_conn: Any) -> None:
     assert results, "No check rows were returned by Phase 4 validation SQL."
     for row in results:
         assert int(row["violations"]) == 0, f"{row['check_name']} has violations={row['violations']}"
+
+
+def test_phase_5_validation_sql_returns_zero(pg_conn: Any) -> None:
+    sql_path = Path("docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql")
+    results = _run_validation_sql(pg_conn, sql_path)
+    assert results, "No check rows were returned by Phase 5 validation SQL."
+    for row in results:
+        assert int(row["violations"]) == 0, f"{row['check_name']} has violations={row['violations']}"
