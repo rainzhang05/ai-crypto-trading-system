@@ -122,7 +122,7 @@ Equivalent direct command:
 1. Starts ephemeral TimescaleDB container.
 2. Creates fresh `crypto_db_test`.
 3. Applies `schema_bootstrap.sql` with `psql -v ON_ERROR_STOP=1`.
-4. Runs Phase 1C + Phase 1D + Phase 2 + Phase 3 + Phase 4 + Phase 5 validation SQL (must be all zero).
+4. Runs Phase 1C + Phase 1D + Phase 2 + Phase 3 + Phase 4 + Phase 5 + Phase 6A + Phase 6B validation SQL (must be all zero).
 5. Dumps schema and verifies canonical equivalence + SHA-256 match.
 6. Enables test-only insert path on ephemeral DB via `docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql`.
 7. Runs Phase 2 replay-tool smoke check (`replay-tool`) on clean bootstrap state.

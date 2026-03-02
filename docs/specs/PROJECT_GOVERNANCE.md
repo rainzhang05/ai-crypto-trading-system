@@ -161,6 +161,7 @@ Model and inference artifacts are governed repository assets:
 - bundle compatibility (app/backend/model) must be versioned and enforced
 - update workflow must support verification, atomic install, and rollback on failure
 - macOS app update/sync channel must retrieve artifacts from this GitHub repository path set
+- signed release bundles are required for governed distribution channels
 
 ---
 

@@ -731,6 +731,36 @@ ALTER TABLE public.asset_cluster_membership ALTER COLUMN membership_id ADD GENER
 
 
 --
+-- Name: automation_event_log; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.automation_event_log (
+    event_id bigint NOT NULL,
+    event_ts_utc timestamp with time zone NOT NULL,
+    event_type text NOT NULL,
+    status text NOT NULL,
+    details text NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_automation_event_status_not_blank CHECK ((length(btrim(status)) > 0)),
+    CONSTRAINT ck_automation_event_type_not_blank CHECK ((length(btrim(event_type)) > 0))
+);
+
+
+--
+-- Name: automation_event_log_event_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.automation_event_log ALTER COLUMN event_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.automation_event_log_event_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: backtest_fold_result; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -952,6 +982,85 @@ ALTER TABLE public.cost_profile ALTER COLUMN cost_profile_id ADD GENERATED ALWAY
 
 
 --
+-- Name: data_gap_event; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.data_gap_event (
+    gap_event_id uuid NOT NULL,
+    source_name text NOT NULL,
+    symbol text NOT NULL,
+    gap_start_ts_utc timestamp with time zone NOT NULL,
+    gap_end_ts_utc timestamp with time zone NOT NULL,
+    status text NOT NULL,
+    detected_at_utc timestamp with time zone NOT NULL,
+    resolved_at_utc timestamp with time zone,
+    details_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_data_gap_ordering CHECK ((gap_end_ts_utc > gap_start_ts_utc)),
+    CONSTRAINT ck_data_gap_resolve_time CHECK (((resolved_at_utc IS NULL) OR (resolved_at_utc >= detected_at_utc))),
+    CONSTRAINT ck_data_gap_source CHECK ((source_name = 'COINAPI'::text)),
+    CONSTRAINT ck_data_gap_status CHECK ((status = ANY (ARRAY['PENDING'::text, 'REPAIRED'::text, 'FAILED'::text]))),
+    CONSTRAINT ck_data_gap_symbol_upper CHECK ((symbol = upper(symbol)))
+);
+
+
+--
+-- Name: dataset_snapshot; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dataset_snapshot (
+    dataset_snapshot_id uuid NOT NULL,
+    generated_at_utc timestamp with time zone NOT NULL,
+    dataset_hash character(64) NOT NULL,
+    row_count bigint NOT NULL,
+    symbol_count integer NOT NULL,
+    materialized_path text NOT NULL,
+    component_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_dataset_snapshot_row_count CHECK ((row_count > 0)),
+    CONSTRAINT ck_dataset_snapshot_symbol_count CHECK ((symbol_count > 0))
+);
+
+
+--
+-- Name: dataset_snapshot_component; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.dataset_snapshot_component (
+    dataset_snapshot_id uuid NOT NULL,
+    symbol text NOT NULL,
+    component_path text NOT NULL,
+    component_row_count bigint NOT NULL,
+    component_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_dataset_component_row_count CHECK ((component_row_count >= 0)),
+    CONSTRAINT ck_dataset_component_symbol_upper CHECK ((symbol = upper(symbol)))
+);
+
+
+--
+-- Name: drift_event; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.drift_event (
+    drift_event_id uuid NOT NULL,
+    training_cycle_ref text NOT NULL,
+    symbol text NOT NULL,
+    horizon public.horizon_enum NOT NULL,
+    accuracy_drop_pp numeric(12,10) NOT NULL,
+    ece_delta numeric(12,10) NOT NULL,
+    psi_value numeric(12,10) NOT NULL,
+    triggered_at_utc timestamp with time zone NOT NULL,
+    threshold_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_drift_accuracy_nonneg CHECK ((accuracy_drop_pp >= (0)::numeric)),
+    CONSTRAINT ck_drift_ece_nonneg CHECK ((ece_delta >= (0)::numeric)),
+    CONSTRAINT ck_drift_psi_nonneg CHECK ((psi_value >= (0)::numeric)),
+    CONSTRAINT ck_drift_symbol_upper CHECK ((symbol = upper(symbol)))
+);
+
+
+--
 -- Name: executed_trade; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1077,6 +1186,96 @@ CREATE TABLE public.feature_snapshot (
     row_hash character(64) NOT NULL,
     CONSTRAINT ck_feature_snapshot_hour_aligned CHECK ((date_trunc('hour'::text, hour_ts_utc) = hour_ts_utc)),
     CONSTRAINT ck_feature_snapshot_source_window CHECK (((source_window_start_utc <= source_window_end_utc) AND (source_window_end_utc <= hour_ts_utc)))
+);
+
+
+--
+-- Name: hindcast_forecast_metric; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.hindcast_forecast_metric (
+    metric_id bigint NOT NULL,
+    training_cycle_id uuid NOT NULL,
+    symbol text NOT NULL,
+    horizon public.horizon_enum NOT NULL,
+    metric_kind text NOT NULL,
+    directional_accuracy numeric(12,10) NOT NULL,
+    brier_score numeric(12,10) NOT NULL,
+    ece numeric(12,10) NOT NULL,
+    measured_at_utc timestamp with time zone NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_hindcast_accuracy_range CHECK (((directional_accuracy >= (0)::numeric) AND (directional_accuracy <= (1)::numeric))),
+    CONSTRAINT ck_hindcast_brier_range CHECK (((brier_score >= (0)::numeric) AND (brier_score <= (1)::numeric))),
+    CONSTRAINT ck_hindcast_ece_range CHECK (((ece >= (0)::numeric) AND (ece <= (1)::numeric))),
+    CONSTRAINT ck_hindcast_metric_kind CHECK ((metric_kind = ANY (ARRAY['HINDCAST'::text, 'FORECAST'::text, 'ROLLING'::text]))),
+    CONSTRAINT ck_hindcast_symbol_upper CHECK ((symbol = upper(symbol)))
+);
+
+
+--
+-- Name: hindcast_forecast_metric_metric_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.hindcast_forecast_metric ALTER COLUMN metric_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.hindcast_forecast_metric_metric_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: ingestion_cycle; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ingestion_cycle (
+    ingestion_cycle_id uuid NOT NULL,
+    cycle_kind text NOT NULL,
+    started_at_utc timestamp with time zone NOT NULL,
+    completed_at_utc timestamp with time zone,
+    status text NOT NULL,
+    details_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_ingestion_cycle_kind CHECK ((cycle_kind = ANY (ARRAY['BOOTSTRAP'::text, 'INCREMENTAL'::text, 'GAP_REPAIR'::text]))),
+    CONSTRAINT ck_ingestion_cycle_status CHECK ((status = ANY (ARRAY['RUNNING'::text, 'COMPLETED'::text, 'FAILED'::text]))),
+    CONSTRAINT ck_ingestion_cycle_time_order CHECK (((completed_at_utc IS NULL) OR (completed_at_utc >= started_at_utc)))
+);
+
+
+--
+-- Name: ingestion_watermark_history; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ingestion_watermark_history (
+    watermark_id bigint NOT NULL,
+    ingestion_cycle_id uuid NOT NULL,
+    source_name text NOT NULL,
+    symbol text NOT NULL,
+    watermark_kind text NOT NULL,
+    watermark_ts_utc timestamp with time zone NOT NULL,
+    watermark_cursor text,
+    records_ingested bigint NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_ingestion_watermark_kind CHECK ((watermark_kind = ANY (ARRAY['BOOTSTRAP_END'::text, 'INCREMENTAL_END'::text]))),
+    CONSTRAINT ck_ingestion_watermark_records_nonneg CHECK ((records_ingested >= 0)),
+    CONSTRAINT ck_ingestion_watermark_source CHECK ((source_name = ANY (ARRAY['COINAPI'::text, 'KRAKEN_PUBLIC'::text]))),
+    CONSTRAINT ck_ingestion_watermark_symbol_upper CHECK ((symbol = upper(symbol)))
+);
+
+
+--
+-- Name: ingestion_watermark_history_watermark_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.ingestion_watermark_history ALTER COLUMN watermark_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.ingestion_watermark_history_watermark_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
 );
 
 
@@ -1232,6 +1431,24 @@ CREATE TABLE public.model_prediction_phase1a_archive (
     input_feature_hash character(64) NOT NULL,
     CONSTRAINT ck_model_prediction_hour_aligned CHECK ((date_trunc('hour'::text, hour_ts_utc) = hour_ts_utc)),
     CONSTRAINT ck_model_prediction_prob_range CHECK (((prob_up >= (0)::numeric) AND (prob_up <= (1)::numeric)))
+);
+
+
+--
+-- Name: model_training_run; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.model_training_run (
+    training_cycle_id uuid NOT NULL,
+    dataset_snapshot_id uuid NOT NULL,
+    candidate_model_set_hash character(64) NOT NULL,
+    tree_model_count integer NOT NULL,
+    deep_model_count integer NOT NULL,
+    approved boolean NOT NULL,
+    reason_code text NOT NULL,
+    run_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_model_training_run_counts_nonneg CHECK (((tree_model_count >= 0) AND (deep_model_count >= 0)))
 );
 
 
@@ -1630,6 +1847,60 @@ CREATE TABLE public.position_lot_phase1a_archive (
 
 
 --
+-- Name: promotion_decision; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.promotion_decision (
+    promotion_decision_id uuid NOT NULL,
+    training_cycle_id uuid NOT NULL,
+    candidate_model_set_hash character(64) NOT NULL,
+    approved boolean NOT NULL,
+    reason_code text NOT NULL,
+    metrics_hash character(64) NOT NULL,
+    decided_at_utc timestamp with time zone NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+
+--
+-- Name: raw_trade_chunk_manifest; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.raw_trade_chunk_manifest (
+    chunk_manifest_id bigint NOT NULL,
+    ingestion_cycle_id uuid NOT NULL,
+    source_name text NOT NULL,
+    symbol text NOT NULL,
+    day_utc date NOT NULL,
+    file_path text NOT NULL,
+    file_sha256 character(64) NOT NULL,
+    row_count bigint NOT NULL,
+    min_trade_ts_utc timestamp with time zone NOT NULL,
+    max_trade_ts_utc timestamp with time zone NOT NULL,
+    chunk_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_raw_trade_chunk_rows_nonneg CHECK ((row_count >= 0)),
+    CONSTRAINT ck_raw_trade_chunk_source CHECK ((source_name = 'COINAPI'::text)),
+    CONSTRAINT ck_raw_trade_chunk_symbol_upper CHECK ((symbol = upper(symbol))),
+    CONSTRAINT ck_raw_trade_chunk_ts_order CHECK ((max_trade_ts_utc >= min_trade_ts_utc))
+);
+
+
+--
+-- Name: raw_trade_chunk_manifest_chunk_manifest_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+ALTER TABLE public.raw_trade_chunk_manifest ALTER COLUMN chunk_manifest_id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.raw_trade_chunk_manifest_chunk_manifest_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
 -- Name: regime_output; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1970,6 +2241,58 @@ CREATE TABLE public.trade_signal_phase1a_archive (
 
 
 --
+-- Name: training_cycle; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.training_cycle (
+    training_cycle_id uuid NOT NULL,
+    cycle_kind text NOT NULL,
+    started_at_utc timestamp with time zone NOT NULL,
+    completed_at_utc timestamp with time zone,
+    status text NOT NULL,
+    details_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_training_cycle_kind CHECK ((cycle_kind = ANY (ARRAY['SCHEDULED'::text, 'DRIFT_TRIGGERED'::text, 'MANUAL'::text]))),
+    CONSTRAINT ck_training_cycle_status CHECK ((status = ANY (ARRAY['RUNNING'::text, 'COMPLETED'::text, 'REJECTED'::text, 'FAILED'::text]))),
+    CONSTRAINT ck_training_cycle_time_order CHECK (((completed_at_utc IS NULL) OR (completed_at_utc >= started_at_utc)))
+);
+
+
+--
+-- Name: training_universe_symbol; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.training_universe_symbol (
+    universe_version_code text NOT NULL,
+    symbol text NOT NULL,
+    market_cap_rank integer NOT NULL,
+    market_cap_usd numeric(38,18) NOT NULL,
+    is_kraken_tradable boolean NOT NULL,
+    kraken_pair text,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_training_universe_market_cap_nonneg CHECK ((market_cap_usd >= (0)::numeric)),
+    CONSTRAINT ck_training_universe_market_cap_rank CHECK ((market_cap_rank >= 1)),
+    CONSTRAINT ck_training_universe_symbol_upper CHECK ((symbol = upper(symbol)))
+);
+
+
+--
+-- Name: training_universe_version; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.training_universe_version (
+    universe_version_code text NOT NULL,
+    generated_at_utc timestamp with time zone NOT NULL,
+    universe_hash character(64) NOT NULL,
+    source_policy text NOT NULL,
+    symbol_count integer NOT NULL,
+    row_hash character(64) NOT NULL,
+    CONSTRAINT ck_training_universe_source_policy CHECK ((source_policy = 'COINAPI+KRAKEN_PUBLIC'::text)),
+    CONSTRAINT ck_training_universe_symbol_count CHECK ((symbol_count > 0))
+);
+
+
+--
 -- Name: cash_ledger cash_ledger_v2_account_id_run_mode_event_ts_utc_ref_type_re_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2098,6 +2421,14 @@ ALTER TABLE ONLY public.asset_cluster_membership
 
 
 --
+-- Name: automation_event_log pk_automation_event_log; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.automation_event_log
+    ADD CONSTRAINT pk_automation_event_log PRIMARY KEY (event_id);
+
+
+--
 -- Name: backtest_fold_result pk_backtest_fold_result; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2146,6 +2477,38 @@ ALTER TABLE ONLY public.cost_profile
 
 
 --
+-- Name: data_gap_event pk_data_gap_event; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.data_gap_event
+    ADD CONSTRAINT pk_data_gap_event PRIMARY KEY (gap_event_id);
+
+
+--
+-- Name: dataset_snapshot pk_dataset_snapshot; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dataset_snapshot
+    ADD CONSTRAINT pk_dataset_snapshot PRIMARY KEY (dataset_snapshot_id);
+
+
+--
+-- Name: dataset_snapshot_component pk_dataset_snapshot_component; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dataset_snapshot_component
+    ADD CONSTRAINT pk_dataset_snapshot_component PRIMARY KEY (dataset_snapshot_id, symbol, component_path);
+
+
+--
+-- Name: drift_event pk_drift_event; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.drift_event
+    ADD CONSTRAINT pk_drift_event PRIMARY KEY (drift_event_id);
+
+
+--
 -- Name: executed_trade_phase1a_archive pk_executed_trade; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2167,6 +2530,30 @@ ALTER TABLE ONLY public.feature_definition
 
 ALTER TABLE ONLY public.feature_snapshot
     ADD CONSTRAINT pk_feature_snapshot PRIMARY KEY (run_id, asset_id, feature_id, hour_ts_utc);
+
+
+--
+-- Name: hindcast_forecast_metric pk_hindcast_forecast_metric; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.hindcast_forecast_metric
+    ADD CONSTRAINT pk_hindcast_forecast_metric PRIMARY KEY (metric_id);
+
+
+--
+-- Name: ingestion_cycle pk_ingestion_cycle; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_cycle
+    ADD CONSTRAINT pk_ingestion_cycle PRIMARY KEY (ingestion_cycle_id);
+
+
+--
+-- Name: ingestion_watermark_history pk_ingestion_watermark_history; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_watermark_history
+    ADD CONSTRAINT pk_ingestion_watermark_history PRIMARY KEY (watermark_id);
 
 
 --
@@ -2199,6 +2586,14 @@ ALTER TABLE ONLY public.model_activation_gate
 
 ALTER TABLE ONLY public.model_prediction_phase1a_archive
     ADD CONSTRAINT pk_model_prediction PRIMARY KEY (run_id, asset_id, horizon, model_version_id, hour_ts_utc);
+
+
+--
+-- Name: model_training_run pk_model_training_run; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.model_training_run
+    ADD CONSTRAINT pk_model_training_run PRIMARY KEY (training_cycle_id);
 
 
 --
@@ -2274,6 +2669,22 @@ ALTER TABLE ONLY public.position_lot_phase1a_archive
 
 
 --
+-- Name: promotion_decision pk_promotion_decision; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.promotion_decision
+    ADD CONSTRAINT pk_promotion_decision PRIMARY KEY (promotion_decision_id);
+
+
+--
+-- Name: raw_trade_chunk_manifest pk_raw_trade_chunk_manifest; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.raw_trade_chunk_manifest
+    ADD CONSTRAINT pk_raw_trade_chunk_manifest PRIMARY KEY (chunk_manifest_id);
+
+
+--
 -- Name: regime_output_phase1a_archive pk_regime_output; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2335,6 +2746,30 @@ ALTER TABLE ONLY public.run_context
 
 ALTER TABLE ONLY public.trade_signal_phase1a_archive
     ADD CONSTRAINT pk_trade_signal PRIMARY KEY (signal_id);
+
+
+--
+-- Name: training_cycle pk_training_cycle; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.training_cycle
+    ADD CONSTRAINT pk_training_cycle PRIMARY KEY (training_cycle_id);
+
+
+--
+-- Name: training_universe_symbol pk_training_universe_symbol; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.training_universe_symbol
+    ADD CONSTRAINT pk_training_universe_symbol PRIMARY KEY (universe_version_code, symbol);
+
+
+--
+-- Name: training_universe_version pk_training_universe_version; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.training_universe_version
+    ADD CONSTRAINT pk_training_universe_version PRIMARY KEY (universe_version_code);
 
 
 --
@@ -2466,6 +2901,14 @@ ALTER TABLE ONLY public.cost_profile
 
 
 --
+-- Name: dataset_snapshot uq_dataset_snapshot_hash; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dataset_snapshot
+    ADD CONSTRAINT uq_dataset_snapshot_hash UNIQUE (dataset_hash);
+
+
+--
 -- Name: executed_trade_phase1a_archive uq_executed_trade_lot_exit_qty; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2567,6 +3010,14 @@ ALTER TABLE ONLY public.position_lot_phase1a_archive
 
 ALTER TABLE ONLY public.position_lot_phase1a_archive
     ADD CONSTRAINT uq_position_lot_open_fill UNIQUE (open_fill_id);
+
+
+--
+-- Name: raw_trade_chunk_manifest uq_raw_trade_chunk_manifest_identity; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.raw_trade_chunk_manifest
+    ADD CONSTRAINT uq_raw_trade_chunk_manifest_identity UNIQUE (source_name, symbol, day_utc, file_sha256);
 
 
 --
@@ -2728,6 +3179,13 @@ CREATE INDEX idx_asset_is_active ON public.asset USING btree (is_active);
 
 
 --
+-- Name: idx_automation_event_ts_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_automation_event_ts_desc ON public.automation_event_log USING btree (event_ts_utc DESC);
+
+
+--
 -- Name: idx_backtest_fold_result_valid_range; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2798,6 +3256,20 @@ CREATE INDEX idx_cost_profile_venue_effective_from_desc ON public.cost_profile U
 
 
 --
+-- Name: idx_dataset_snapshot_generated_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_dataset_snapshot_generated_desc ON public.dataset_snapshot USING btree (generated_at_utc DESC);
+
+
+--
+-- Name: idx_drift_event_symbol_horizon; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_drift_event_symbol_horizon ON public.drift_event USING btree (symbol, horizon, triggered_at_utc DESC);
+
+
+--
 -- Name: idx_executed_trade_account_exit_ts_desc; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -2837,6 +3309,20 @@ CREATE INDEX idx_feature_snapshot_feature_hour_desc ON public.feature_snapshot U
 --
 
 CREATE INDEX idx_feature_snapshot_mode_hour_desc ON public.feature_snapshot USING btree (run_mode, hour_ts_utc DESC);
+
+
+--
+-- Name: idx_hindcast_cycle_symbol_horizon; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_hindcast_cycle_symbol_horizon ON public.hindcast_forecast_metric USING btree (training_cycle_id, symbol, horizon, measured_at_utc DESC);
+
+
+--
+-- Name: idx_ingestion_watermark_symbol_ts_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_ingestion_watermark_symbol_ts_desc ON public.ingestion_watermark_history USING btree (source_name, symbol, watermark_ts_utc DESC);
 
 
 --
@@ -2994,6 +3480,20 @@ CREATE INDEX idx_position_lot_remaining_qty ON public.position_lot_phase1a_archi
 
 
 --
+-- Name: idx_promotion_decision_cycle_decided_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_promotion_decision_cycle_decided_desc ON public.promotion_decision USING btree (training_cycle_id, decided_at_utc DESC);
+
+
+--
+-- Name: idx_raw_trade_chunk_symbol_day_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_raw_trade_chunk_symbol_day_desc ON public.raw_trade_chunk_manifest USING btree (symbol, day_utc DESC);
+
+
+--
 -- Name: idx_regime_output_asset_hour_desc; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -3082,6 +3582,13 @@ CREATE INDEX idx_trade_signal_account_hour_desc ON public.trade_signal_phase1a_a
 --
 
 CREATE INDEX idx_trade_signal_action_hour_desc ON public.trade_signal_phase1a_archive USING btree (action, hour_ts_utc DESC);
+
+
+--
+-- Name: idx_training_cycle_started_desc; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_training_cycle_started_desc ON public.training_cycle USING btree (started_at_utc DESC);
 
 
 --
@@ -3421,6 +3928,13 @@ CREATE TRIGGER trg_account_risk_profile_assignment_append_only BEFORE DELETE OR 
 
 
 --
+-- Name: automation_event_log trg_automation_event_log_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_automation_event_log_append_only BEFORE DELETE OR UPDATE ON public.automation_event_log FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
 -- Name: backtest_fold_result trg_backtest_fold_result_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3446,6 +3960,34 @@ CREATE TRIGGER trg_cash_ledger_append_only BEFORE DELETE OR UPDATE ON public.cas
 --
 
 CREATE TRIGGER trg_cash_ledger_phase_1b_lock BEFORE INSERT ON public.cash_ledger_phase1a_archive FOR EACH ROW EXECUTE FUNCTION public.fn_reject_writes_when_phase_1b_locked();
+
+
+--
+-- Name: data_gap_event trg_data_gap_event_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_data_gap_event_append_only BEFORE DELETE OR UPDATE ON public.data_gap_event FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: dataset_snapshot trg_dataset_snapshot_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dataset_snapshot_append_only BEFORE DELETE OR UPDATE ON public.dataset_snapshot FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: dataset_snapshot_component trg_dataset_snapshot_component_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_dataset_snapshot_component_append_only BEFORE DELETE OR UPDATE ON public.dataset_snapshot_component FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: drift_event trg_drift_event_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_drift_event_append_only BEFORE DELETE OR UPDATE ON public.drift_event FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
 
 
 --
@@ -3484,6 +4026,27 @@ CREATE TRIGGER trg_guard_risk_hourly_state_identity_key_mutation BEFORE DELETE O
 
 
 --
+-- Name: hindcast_forecast_metric trg_hindcast_forecast_metric_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_hindcast_forecast_metric_append_only BEFORE DELETE OR UPDATE ON public.hindcast_forecast_metric FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: ingestion_cycle trg_ingestion_cycle_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_ingestion_cycle_append_only BEFORE DELETE OR UPDATE ON public.ingestion_cycle FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: ingestion_watermark_history trg_ingestion_watermark_history_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_ingestion_watermark_history_append_only BEFORE DELETE OR UPDATE ON public.ingestion_watermark_history FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
 -- Name: market_ohlcv_hourly trg_market_ohlcv_hourly_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3502,6 +4065,13 @@ CREATE TRIGGER trg_meta_learner_component_append_only BEFORE DELETE OR UPDATE ON
 --
 
 CREATE TRIGGER trg_model_prediction_append_only BEFORE DELETE OR UPDATE ON public.model_prediction_phase1a_archive FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: model_training_run trg_model_training_run_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_model_training_run_append_only BEFORE DELETE OR UPDATE ON public.model_training_run FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
 
 
 --
@@ -3568,6 +4138,20 @@ CREATE TRIGGER trg_position_lot_append_only BEFORE DELETE OR UPDATE ON public.po
 
 
 --
+-- Name: promotion_decision trg_promotion_decision_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_promotion_decision_append_only BEFORE DELETE OR UPDATE ON public.promotion_decision FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: raw_trade_chunk_manifest trg_raw_trade_chunk_manifest_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_raw_trade_chunk_manifest_append_only BEFORE DELETE OR UPDATE ON public.raw_trade_chunk_manifest FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
 -- Name: regime_output_phase1a_archive trg_regime_output_append_only; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -3628,6 +4212,27 @@ CREATE TRIGGER trg_trade_signal_append_only BEFORE DELETE OR UPDATE ON public.tr
 --
 
 CREATE TRIGGER trg_trade_signal_append_only BEFORE DELETE OR UPDATE ON public.trade_signal_phase1a_archive FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: training_cycle trg_training_cycle_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_training_cycle_append_only BEFORE DELETE OR UPDATE ON public.training_cycle FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: training_universe_symbol trg_training_universe_symbol_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_training_universe_symbol_append_only BEFORE DELETE OR UPDATE ON public.training_universe_symbol FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
+
+
+--
+-- Name: training_universe_version trg_training_universe_version_append_only; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_training_universe_version_append_only BEFORE DELETE OR UPDATE ON public.training_universe_version FOR EACH ROW EXECUTE FUNCTION public.fn_enforce_append_only();
 
 
 --
@@ -3798,6 +4403,14 @@ ALTER TABLE ONLY public.cluster_exposure_hourly_state
 
 
 --
+-- Name: dataset_snapshot_component fk_dataset_component_snapshot; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.dataset_snapshot_component
+    ADD CONSTRAINT fk_dataset_component_snapshot FOREIGN KEY (dataset_snapshot_id) REFERENCES public.dataset_snapshot(dataset_snapshot_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
 -- Name: executed_trade_phase1a_archive fk_executed_trade_account; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -3867,6 +4480,22 @@ ALTER TABLE ONLY public.feature_snapshot
 
 ALTER TABLE ONLY public.feature_snapshot
     ADD CONSTRAINT fk_feature_snapshot_run_context FOREIGN KEY (run_id, run_mode, hour_ts_utc) REFERENCES public.run_context(run_id, run_mode, hour_ts_utc) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
+-- Name: hindcast_forecast_metric fk_hindcast_cycle; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.hindcast_forecast_metric
+    ADD CONSTRAINT fk_hindcast_cycle FOREIGN KEY (training_cycle_id) REFERENCES public.training_cycle(training_cycle_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
+-- Name: ingestion_watermark_history fk_ingestion_watermark_cycle; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ingestion_watermark_history
+    ADD CONSTRAINT fk_ingestion_watermark_cycle FOREIGN KEY (ingestion_cycle_id) REFERENCES public.ingestion_cycle(ingestion_cycle_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
 
 --
@@ -4019,6 +4648,22 @@ ALTER TABLE ONLY public.model_prediction
 
 ALTER TABLE ONLY public.model_prediction
     ADD CONSTRAINT fk_model_prediction_training_window FOREIGN KEY (training_window_id) REFERENCES public.model_training_window(training_window_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
+-- Name: model_training_run fk_model_training_run_cycle; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.model_training_run
+    ADD CONSTRAINT fk_model_training_run_cycle FOREIGN KEY (training_cycle_id) REFERENCES public.training_cycle(training_cycle_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
+-- Name: model_training_run fk_model_training_run_snapshot; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.model_training_run
+    ADD CONSTRAINT fk_model_training_run_snapshot FOREIGN KEY (dataset_snapshot_id) REFERENCES public.dataset_snapshot(dataset_snapshot_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
 
 --
@@ -4278,6 +4923,22 @@ ALTER TABLE ONLY public.position_lot
 
 
 --
+-- Name: promotion_decision fk_promotion_decision_cycle; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.promotion_decision
+    ADD CONSTRAINT fk_promotion_decision_cycle FOREIGN KEY (training_cycle_id) REFERENCES public.training_cycle(training_cycle_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
+-- Name: raw_trade_chunk_manifest fk_raw_trade_chunk_cycle; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.raw_trade_chunk_manifest
+    ADD CONSTRAINT fk_raw_trade_chunk_cycle FOREIGN KEY (ingestion_cycle_id) REFERENCES public.ingestion_cycle(ingestion_cycle_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
 -- Name: regime_output fk_regime_output_account; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -4523,6 +5184,14 @@ ALTER TABLE ONLY public.trade_signal
 
 ALTER TABLE ONLY public.trade_signal
     ADD CONSTRAINT fk_trade_signal_v2_risk_state_exact_identity FOREIGN KEY (run_mode, account_id, risk_state_hour_ts_utc, risk_state_run_id) REFERENCES public.risk_hourly_state_identity(run_mode, account_id, hour_ts_utc, source_run_id) ON UPDATE RESTRICT ON DELETE RESTRICT;
+
+
+--
+-- Name: training_universe_symbol fk_training_universe_symbol_version; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.training_universe_symbol
+    ADD CONSTRAINT fk_training_universe_symbol_version FOREIGN KEY (universe_version_code) REFERENCES public.training_universe_version(universe_version_code) ON UPDATE RESTRICT ON DELETE RESTRICT;
 
 
 --

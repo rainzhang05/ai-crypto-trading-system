@@ -18,6 +18,8 @@ SQL_EXECUTE_SET: frozenset[str] = frozenset(
         "docs/validations/PHASE_3_RUNTIME_VALIDATION.sql",
         "docs/validations/PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql",
         "docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql",
+        "docs/validations/PHASE_6A_DATA_TRAINING_VALIDATION.sql",
+        "docs/validations/PHASE_6B_BACKTEST_ORCHESTRATOR_VALIDATION.sql",
         "docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql",
         "docs/repairs/PHASE_1C_REVISION_C_SCHEMA_REPAIR_BLUEPRINT.sql",
         "docs/repairs/PHASE_1C_REVISION_C_TRIGGER_REPAIR.sql",

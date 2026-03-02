@@ -491,7 +491,7 @@ Live capital scaling permitted.
 
 ---
 
-## PHASE 10A — MODEL REPOSITORY SYNC AND ONE-CLICK UPDATER
+## PHASE 10A — MODEL BUNDLE RELEASE AND ONE-CLICK UPDATER
 
 Implement:
 - in-repo model/algorithm artifact registry with governed commit/tag update workflow

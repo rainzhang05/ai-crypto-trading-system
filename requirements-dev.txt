@@ -3,3 +3,14 @@ pytest-cov==6.0.0
 psycopg[binary]==3.2.6
 SQLAlchemy==2.0.39
 sqlparse==0.5.3
+numpy==2.2.2
+pandas==2.2.3
+pyarrow==19.0.1
+httpx==0.28.1
+tenacity==9.0.0
+scikit-learn==1.6.1
+xgboost==2.1.4
+lightgbm==4.6.0
+torch==2.6.0
+joblib==1.4.2
+orjson==3.10.15

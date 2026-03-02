@@ -114,6 +114,8 @@ def test_sql_execute_set_runs_and_returns_expected_checks(sql_artifact_conn: Any
         "docs/validations/PHASE_3_RUNTIME_VALIDATION.sql",
         "docs/validations/PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql",
         "docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql",
+        "docs/validations/PHASE_6A_DATA_TRAINING_VALIDATION.sql",
+        "docs/validations/PHASE_6B_BACKTEST_ORCHESTRATOR_VALIDATION.sql",
         "docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql",
     ):
         rows = execute_sql_file(sql_artifact_conn, ROOT / relative_path)
@@ -130,6 +132,8 @@ def test_sql_execute_set_runs_and_returns_expected_checks(sql_artifact_conn: Any
         "docs/validations/PHASE_3_RUNTIME_VALIDATION.sql",
         "docs/validations/PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql",
         "docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql",
+        "docs/validations/PHASE_6A_DATA_TRAINING_VALIDATION.sql",
+        "docs/validations/PHASE_6B_BACKTEST_ORCHESTRATOR_VALIDATION.sql",
         "docs/validations/TEST_RUNTIME_INSERT_ENABLE.sql",
     }
     assert executed == set(SQL_EXECUTE_SET)

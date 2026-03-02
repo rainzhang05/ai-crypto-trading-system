@@ -142,6 +142,26 @@ if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_5_validatio
   exit 1
 fi
 
+echo "[test_all] Running Phase 6A validation gates..."
+docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
+  < "${ROOT_DIR}/docs/validations/PHASE_6A_DATA_TRAINING_VALIDATION.sql" \
+  | tee "${LOG_DIR}/phase_6a_validation.log"
+
+if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_6a_validation.log"; then
+  echo "[test_all] ERROR: Phase 6A validation gate failed." >&2
+  exit 1
+fi
+
+echo "[test_all] Running Phase 6B validation gates..."
+docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
+  < "${ROOT_DIR}/docs/validations/PHASE_6B_BACKTEST_ORCHESTRATOR_VALIDATION.sql" \
+  | tee "${LOG_DIR}/phase_6b_validation.log"
+
+if ! awk -F'|' 'NF==2 { if ($2 != 0) { exit 1 } }' "${LOG_DIR}/phase_6b_validation.log"; then
+  echo "[test_all] ERROR: Phase 6B validation gate failed." >&2
+  exit 1
+fi
+
 echo "[test_all] Verifying schema equivalence against canonical bootstrap..."
 docker exec "${CONTAINER_NAME}" pg_dump -U "${DB_USER}" -d "${DB_NAME}" --schema-only --no-owner --no-privileges \
   > "${LOG_DIR}/live_schema.sql"

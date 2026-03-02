@@ -20,4 +20,5 @@ Current directory state includes:
 - Phase 3 implementation logs (kickoff + completion).
 - Phase 4 implementation log (order lifecycle closure).
 - Phase 5 implementation log (portfolio/ledger engine closure).
+- Phase 6 implementation log scaffold (`phase_6_data_training/IMPLEMENTATION_LOG_PHASE_6.md`).
 - Active phase artifacts should now target Phase 6 onward.

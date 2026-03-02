@@ -4554,4 +4554,165 @@ ALTER TABLE ONLY public.trade_signal
 
 ```
 
+## 2. Phase 6A/6B Extension Snapshot (Authoritative Addendum)
+
+```sql
+CREATE TABLE public.training_universe_version (
+    universe_version_code text NOT NULL,
+    generated_at_utc timestamp with time zone NOT NULL,
+    universe_hash character(64) NOT NULL,
+    source_policy text NOT NULL,
+    symbol_count integer NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.training_universe_symbol (
+    universe_version_code text NOT NULL,
+    symbol text NOT NULL,
+    market_cap_rank integer NOT NULL,
+    market_cap_usd numeric(38,18) NOT NULL,
+    is_kraken_tradable boolean NOT NULL,
+    kraken_pair text,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.ingestion_cycle (
+    ingestion_cycle_id uuid NOT NULL,
+    cycle_kind text NOT NULL,
+    started_at_utc timestamp with time zone NOT NULL,
+    completed_at_utc timestamp with time zone,
+    status text NOT NULL,
+    details_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.ingestion_watermark_history (
+    watermark_id bigint NOT NULL,
+    ingestion_cycle_id uuid NOT NULL,
+    source_name text NOT NULL,
+    symbol text NOT NULL,
+    watermark_kind text NOT NULL,
+    watermark_ts_utc timestamp with time zone NOT NULL,
+    watermark_cursor text,
+    records_ingested bigint NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.raw_trade_chunk_manifest (
+    chunk_manifest_id bigint NOT NULL,
+    ingestion_cycle_id uuid NOT NULL,
+    source_name text NOT NULL,
+    symbol text NOT NULL,
+    day_utc date NOT NULL,
+    file_path text NOT NULL,
+    file_sha256 character(64) NOT NULL,
+    row_count bigint NOT NULL,
+    min_trade_ts_utc timestamp with time zone NOT NULL,
+    max_trade_ts_utc timestamp with time zone NOT NULL,
+    chunk_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.data_gap_event (
+    gap_event_id uuid NOT NULL,
+    source_name text NOT NULL,
+    symbol text NOT NULL,
+    gap_start_ts_utc timestamp with time zone NOT NULL,
+    gap_end_ts_utc timestamp with time zone NOT NULL,
+    status text NOT NULL,
+    detected_at_utc timestamp with time zone NOT NULL,
+    resolved_at_utc timestamp with time zone,
+    details_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.dataset_snapshot (
+    dataset_snapshot_id uuid NOT NULL,
+    generated_at_utc timestamp with time zone NOT NULL,
+    dataset_hash character(64) NOT NULL,
+    row_count bigint NOT NULL,
+    symbol_count integer NOT NULL,
+    materialized_path text NOT NULL,
+    component_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.dataset_snapshot_component (
+    dataset_snapshot_id uuid NOT NULL,
+    symbol text NOT NULL,
+    component_path text NOT NULL,
+    component_row_count bigint NOT NULL,
+    component_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.training_cycle (
+    training_cycle_id uuid NOT NULL,
+    cycle_kind text NOT NULL,
+    started_at_utc timestamp with time zone NOT NULL,
+    completed_at_utc timestamp with time zone,
+    status text NOT NULL,
+    details_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.model_training_run (
+    training_cycle_id uuid NOT NULL,
+    dataset_snapshot_id uuid NOT NULL,
+    candidate_model_set_hash character(64) NOT NULL,
+    tree_model_count integer NOT NULL,
+    deep_model_count integer NOT NULL,
+    approved boolean NOT NULL,
+    reason_code text NOT NULL,
+    run_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.hindcast_forecast_metric (
+    metric_id bigint NOT NULL,
+    training_cycle_id uuid NOT NULL,
+    symbol text NOT NULL,
+    horizon public.horizon_enum NOT NULL,
+    metric_kind text NOT NULL,
+    directional_accuracy numeric(12,10) NOT NULL,
+    brier_score numeric(12,10) NOT NULL,
+    ece numeric(12,10) NOT NULL,
+    measured_at_utc timestamp with time zone NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.drift_event (
+    drift_event_id uuid NOT NULL,
+    training_cycle_ref text NOT NULL,
+    symbol text NOT NULL,
+    horizon public.horizon_enum NOT NULL,
+    accuracy_drop_pp numeric(12,10) NOT NULL,
+    ece_delta numeric(12,10) NOT NULL,
+    psi_value numeric(12,10) NOT NULL,
+    triggered_at_utc timestamp with time zone NOT NULL,
+    threshold_hash character(64) NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.promotion_decision (
+    promotion_decision_id uuid NOT NULL,
+    training_cycle_id uuid NOT NULL,
+    candidate_model_set_hash character(64) NOT NULL,
+    approved boolean NOT NULL,
+    reason_code text NOT NULL,
+    metrics_hash character(64) NOT NULL,
+    decided_at_utc timestamp with time zone NOT NULL,
+    row_hash character(64) NOT NULL
+);
+
+CREATE TABLE public.automation_event_log (
+    event_id bigint NOT NULL,
+    event_ts_utc timestamp with time zone NOT NULL,
+    event_type text NOT NULL,
+    status text NOT NULL,
+    details text NOT NULL,
+    row_hash character(64) NOT NULL
+);
+```
+
 END OF MASTER SCHEMA DDL CONTRACT
