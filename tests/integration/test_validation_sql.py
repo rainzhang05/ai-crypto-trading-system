@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
 from psycopg.rows import dict_row
 
 
@@ -35,6 +36,28 @@ def _run_validation_sql(conn: Any, sql_path: Path) -> list[dict[str, Any]]:
                     results.append(dict(row))
     conn.rollback()
     return results
+
+
+def _truncate_public_tables(conn: Any) -> None:
+    """Clear prior integration-test data so validation gates run in isolation."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT quote_ident(tablename) AS table_name
+            FROM pg_tables
+            WHERE schemaname = 'public'
+            ORDER BY tablename
+            """
+        )
+        tables = [str(row[0]) for row in cur.fetchall()]
+        if tables:
+            cur.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE;")
+    conn.commit()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _isolate_validation_sql_module(pg_conn: Any) -> None:
+    _truncate_public_tables(pg_conn)
 
 
 def test_phase_1c_validation_sql_returns_zero(pg_conn: Any) -> None:
