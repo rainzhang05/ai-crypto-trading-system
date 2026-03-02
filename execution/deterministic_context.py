@@ -233,6 +233,79 @@ class PositionState:
 
 
 @dataclass(frozen=True)
+class AssetPrecisionState:
+    asset_id: int
+    tick_size: Decimal
+    lot_size: Decimal
+
+
+@dataclass(frozen=True)
+class OrderBookSnapshotState:
+    asset_id: int
+    snapshot_ts_utc: datetime
+    hour_ts_utc: datetime
+    best_bid_price: Decimal
+    best_ask_price: Decimal
+    best_bid_size: Decimal
+    best_ask_size: Decimal
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class OhlcvState:
+    asset_id: int
+    hour_ts_utc: datetime
+    close_price: Decimal
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class ExistingOrderFillState:
+    fill_id: UUID
+    order_id: UUID
+    run_id: UUID
+    run_mode: str
+    account_id: int
+    asset_id: int
+    fill_ts_utc: datetime
+    fill_price: Decimal
+    fill_qty: Decimal
+    fill_notional: Decimal
+    fee_paid: Decimal
+    realized_slippage_rate: Decimal
+    slippage_cost: Decimal
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class ExistingPositionLotState:
+    lot_id: UUID
+    open_fill_id: UUID
+    run_id: UUID
+    run_mode: str
+    account_id: int
+    asset_id: int
+    open_ts_utc: datetime
+    open_price: Decimal
+    open_qty: Decimal
+    open_fee: Decimal
+    remaining_qty: Decimal
+    row_hash: str
+
+
+@dataclass(frozen=True)
+class ExistingExecutedTradeState:
+    trade_id: UUID
+    lot_id: UUID
+    run_id: UUID
+    run_mode: str
+    account_id: int
+    asset_id: int
+    quantity: Decimal
+    row_hash: str
+
+
+@dataclass(frozen=True)
 class ExecutionContext:
     """Immutable context used by deterministic runtime execution."""
 
@@ -250,6 +323,12 @@ class ExecutionContext:
     risk_profile: RiskProfileState
     volatility_features: tuple[VolatilityFeatureState, ...]
     positions: tuple[PositionState, ...]
+    asset_precisions: tuple[AssetPrecisionState, ...]
+    order_book_snapshots: tuple[OrderBookSnapshotState, ...]
+    ohlcv_rows: tuple[OhlcvState, ...]
+    existing_order_fills: tuple[ExistingOrderFillState, ...]
+    existing_position_lots: tuple[ExistingPositionLotState, ...]
+    existing_executed_trades: tuple[ExistingExecutedTradeState, ...]
 
     def find_training_window(self, training_window_id: int) -> Optional[TrainingWindowState]:
         for window in self.training_windows:
@@ -293,6 +372,49 @@ class ExecutionContext:
                 return position
         return None
 
+    def find_asset_precision(self, asset_id: int) -> Optional[AssetPrecisionState]:
+        for asset in self.asset_precisions:
+            if asset.asset_id == asset_id:
+                return asset
+        return None
+
+    def find_latest_order_book_snapshot(
+        self,
+        asset_id: int,
+        as_of_ts_utc: datetime,
+    ) -> Optional[OrderBookSnapshotState]:
+        selected: Optional[OrderBookSnapshotState] = None
+        for snapshot in self.order_book_snapshots:
+            if snapshot.asset_id != asset_id:
+                continue
+            if snapshot.snapshot_ts_utc > as_of_ts_utc:
+                continue
+            if selected is None or snapshot.snapshot_ts_utc > selected.snapshot_ts_utc:
+                selected = snapshot
+        return selected
+
+    def find_ohlcv(self, asset_id: int) -> Optional[OhlcvState]:
+        for row in self.ohlcv_rows:
+            if row.asset_id == asset_id:
+                return row
+        return None
+
+    def find_existing_fill(self, fill_id: UUID) -> Optional[ExistingOrderFillState]:
+        for fill in self.existing_order_fills:
+            if fill.fill_id == fill_id:
+                return fill
+        return None
+
+    def lots_for_asset(self, asset_id: int) -> tuple[ExistingPositionLotState, ...]:
+        return tuple(lot for lot in self.existing_position_lots if lot.asset_id == asset_id)
+
+    def executed_qty_for_lot(self, lot_id: UUID) -> Decimal:
+        total = Decimal("0")
+        for trade in self.existing_executed_trades:
+            if trade.lot_id == lot_id:
+                total += trade.quantity
+        return total
+
 
 class DeterministicContextBuilder:
     """Construct and validate deterministic runtime execution context."""
@@ -328,6 +450,16 @@ class DeterministicContextBuilder:
             volatility_feature_id=risk_profile.volatility_feature_id,
         )
         positions = self._load_positions(run_id, account_id, normalized_mode, hour_ts_utc)
+        asset_precisions = self._load_asset_precisions(predictions)
+        order_book_snapshots = self._load_order_book_snapshots(predictions, hour_ts_utc)
+        ohlcv_rows = self._load_ohlcv_rows(predictions, hour_ts_utc)
+        existing_order_fills = self._load_existing_order_fills(run_id, account_id, normalized_mode)
+        existing_position_lots = self._load_existing_position_lots(run_id, account_id, normalized_mode)
+        existing_executed_trades = self._load_existing_executed_trades(
+            run_id,
+            account_id,
+            normalized_mode,
+        )
 
         context = ExecutionContext(
             run_context=run_ctx,
@@ -344,6 +476,12 @@ class DeterministicContextBuilder:
             risk_profile=risk_profile,
             volatility_features=volatility_features,
             positions=positions,
+            asset_precisions=asset_precisions,
+            order_book_snapshots=order_book_snapshots,
+            ohlcv_rows=ohlcv_rows,
+            existing_order_fills=existing_order_fills,
+            existing_position_lots=existing_position_lots,
+            existing_executed_trades=existing_executed_trades,
         )
         self._validate_context(context)
         return context
@@ -396,6 +534,10 @@ class DeterministicContextBuilder:
                 raise DeterministicAbortError(
                     f"Missing asset_cluster_membership for asset_id={prediction.asset_id} at hour."
                 )
+            if context.find_asset_precision(prediction.asset_id) is None:
+                raise DeterministicAbortError(
+                    f"Missing asset precision metadata for asset_id={prediction.asset_id}."
+                )
 
         if context.prior_economic_state is not None and context.prior_economic_state.ledger_seq > 1:
             if not context.prior_economic_state.prev_ledger_hash:
@@ -413,6 +555,12 @@ class DeterministicContextBuilder:
         for feature_state in context.volatility_features:
             if feature_state.feature_id != context.risk_profile.volatility_feature_id:
                 raise DeterministicAbortError("Configured volatility_feature_id mismatch in feature_snapshot.")
+
+        for lot in context.existing_position_lots:
+            if context.find_existing_fill(lot.open_fill_id) is None:
+                raise DeterministicAbortError(
+                    f"position_lot open_fill_id={lot.open_fill_id} missing matching order_fill row."
+                )
 
     def _validate_prediction_lineage(self, prediction: PredictionState, context: ExecutionContext) -> None:
         if context.run_context.run_mode == "BACKTEST":
@@ -1119,6 +1267,258 @@ class DeterministicContextBuilder:
                     quantity=_as_decimal(row["quantity"]),
                     exposure_pct=_as_decimal(row["exposure_pct"]),
                     unrealized_pnl=_as_decimal(row["unrealized_pnl"]),
+                    row_hash=str(row["row_hash"]),
+                )
+            )
+        return tuple(result)
+
+    def _load_asset_precisions(
+        self,
+        predictions: Sequence[PredictionState],
+    ) -> tuple[AssetPrecisionState, ...]:
+        asset_ids = {prediction.asset_id for prediction in predictions}
+        rows = self._db.fetch_all(
+            """
+            SELECT asset_id, tick_size, lot_size
+            FROM asset
+            ORDER BY asset_id ASC
+            """,
+            {},
+        )
+        result: list[AssetPrecisionState] = []
+        for row in rows:
+            asset_id = int(row["asset_id"])
+            if asset_id not in asset_ids:
+                continue
+            result.append(
+                AssetPrecisionState(
+                    asset_id=asset_id,
+                    tick_size=_as_decimal(row["tick_size"]),
+                    lot_size=_as_decimal(row["lot_size"]),
+                )
+            )
+        return tuple(result)
+
+    def _load_order_book_snapshots(
+        self,
+        predictions: Sequence[PredictionState],
+        hour_ts_utc: datetime,
+    ) -> tuple[OrderBookSnapshotState, ...]:
+        target_assets = {prediction.asset_id for prediction in predictions}
+        rows = self._db.fetch_all(
+            """
+            SELECT
+                asset_id,
+                snapshot_ts_utc,
+                hour_ts_utc,
+                best_bid_price,
+                best_ask_price,
+                best_bid_size,
+                best_ask_size,
+                row_hash
+            FROM order_book_snapshot
+            WHERE hour_ts_utc = :hour_ts_utc
+            ORDER BY asset_id ASC, snapshot_ts_utc ASC, row_hash ASC
+            """,
+            {"hour_ts_utc": hour_ts_utc},
+        )
+        result: list[OrderBookSnapshotState] = []
+        for row in rows:
+            asset_id = int(row["asset_id"])
+            if asset_id not in target_assets:
+                continue
+            result.append(
+                OrderBookSnapshotState(
+                    asset_id=asset_id,
+                    snapshot_ts_utc=_as_datetime(row["snapshot_ts_utc"]),
+                    hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
+                    best_bid_price=_as_decimal(row["best_bid_price"]),
+                    best_ask_price=_as_decimal(row["best_ask_price"]),
+                    best_bid_size=_as_decimal(row["best_bid_size"]),
+                    best_ask_size=_as_decimal(row["best_ask_size"]),
+                    row_hash=str(row["row_hash"]),
+                )
+            )
+        return tuple(result)
+
+    def _load_ohlcv_rows(
+        self,
+        predictions: Sequence[PredictionState],
+        hour_ts_utc: datetime,
+    ) -> tuple[OhlcvState, ...]:
+        target_assets = {prediction.asset_id for prediction in predictions}
+        rows = self._db.fetch_all(
+            """
+            SELECT asset_id, hour_ts_utc, close_price, row_hash, source_venue
+            FROM market_ohlcv_hourly
+            WHERE hour_ts_utc = :hour_ts_utc
+            ORDER BY asset_id ASC, source_venue ASC, row_hash ASC
+            """,
+            {"hour_ts_utc": hour_ts_utc},
+        )
+        selected: dict[int, OhlcvState] = {}
+        for row in rows:
+            asset_id = int(row["asset_id"])
+            if asset_id not in target_assets or asset_id in selected:
+                continue
+            selected[asset_id] = OhlcvState(
+                asset_id=asset_id,
+                hour_ts_utc=_as_datetime(row["hour_ts_utc"]),
+                close_price=_as_decimal(row["close_price"]),
+                row_hash=str(row["row_hash"]),
+            )
+        return tuple(selected[asset_id] for asset_id in sorted(selected))
+
+    def _load_existing_order_fills(
+        self,
+        run_id: UUID,
+        account_id: int,
+        run_mode: str,
+    ) -> tuple[ExistingOrderFillState, ...]:
+        rows = self._db.fetch_all(
+            """
+            SELECT
+                fill_id,
+                order_id,
+                run_id,
+                run_mode,
+                account_id,
+                asset_id,
+                fill_ts_utc,
+                fill_price,
+                fill_qty,
+                fill_notional,
+                fee_paid,
+                realized_slippage_rate,
+                slippage_cost,
+                row_hash
+            FROM order_fill
+            WHERE run_id = :run_id
+              AND account_id = :account_id
+              AND run_mode = :run_mode
+            ORDER BY fill_ts_utc ASC, fill_id ASC
+            """,
+            {
+                "run_id": str(run_id),
+                "account_id": account_id,
+                "run_mode": run_mode,
+            },
+        )
+        result: list[ExistingOrderFillState] = []
+        for row in rows:
+            result.append(
+                ExistingOrderFillState(
+                    fill_id=_as_uuid(row["fill_id"]),
+                    order_id=_as_uuid(row["order_id"]),
+                    run_id=_as_uuid(row["run_id"]),
+                    run_mode=str(row["run_mode"]),
+                    account_id=int(row["account_id"]),
+                    asset_id=int(row["asset_id"]),
+                    fill_ts_utc=_as_datetime(row["fill_ts_utc"]),
+                    fill_price=_as_decimal(row["fill_price"]),
+                    fill_qty=_as_decimal(row["fill_qty"]),
+                    fill_notional=_as_decimal(row["fill_notional"]),
+                    fee_paid=_as_decimal(row["fee_paid"]),
+                    realized_slippage_rate=_as_decimal(row["realized_slippage_rate"]),
+                    slippage_cost=_as_decimal(row["slippage_cost"]),
+                    row_hash=str(row["row_hash"]),
+                )
+            )
+        return tuple(result)
+
+    def _load_existing_position_lots(
+        self,
+        run_id: UUID,
+        account_id: int,
+        run_mode: str,
+    ) -> tuple[ExistingPositionLotState, ...]:
+        rows = self._db.fetch_all(
+            """
+            SELECT
+                lot_id,
+                open_fill_id,
+                run_id,
+                run_mode,
+                account_id,
+                asset_id,
+                open_ts_utc,
+                open_price,
+                open_qty,
+                open_fee,
+                remaining_qty,
+                row_hash
+            FROM position_lot
+            WHERE run_id = :run_id
+              AND account_id = :account_id
+              AND run_mode = :run_mode
+            ORDER BY open_ts_utc ASC, lot_id ASC
+            """,
+            {
+                "run_id": str(run_id),
+                "account_id": account_id,
+                "run_mode": run_mode,
+            },
+        )
+        result: list[ExistingPositionLotState] = []
+        for row in rows:
+            result.append(
+                ExistingPositionLotState(
+                    lot_id=_as_uuid(row["lot_id"]),
+                    open_fill_id=_as_uuid(row["open_fill_id"]),
+                    run_id=_as_uuid(row["run_id"]),
+                    run_mode=str(row["run_mode"]),
+                    account_id=int(row["account_id"]),
+                    asset_id=int(row["asset_id"]),
+                    open_ts_utc=_as_datetime(row["open_ts_utc"]),
+                    open_price=_as_decimal(row["open_price"]),
+                    open_qty=_as_decimal(row["open_qty"]),
+                    open_fee=_as_decimal(row["open_fee"]),
+                    remaining_qty=_as_decimal(row["remaining_qty"]),
+                    row_hash=str(row["row_hash"]),
+                )
+            )
+        return tuple(result)
+
+    def _load_existing_executed_trades(
+        self,
+        run_id: UUID,
+        account_id: int,
+        run_mode: str,
+    ) -> tuple[ExistingExecutedTradeState, ...]:
+        rows = self._db.fetch_all(
+            """
+            SELECT
+                trade_id,
+                lot_id,
+                run_id,
+                run_mode,
+                account_id,
+                asset_id,
+                quantity,
+                row_hash
+            FROM executed_trade
+            WHERE run_id = :run_id
+              AND account_id = :account_id
+              AND run_mode = :run_mode
+            ORDER BY exit_ts_utc ASC, trade_id ASC
+            """,
+            {
+                "run_id": str(run_id),
+                "account_id": account_id,
+                "run_mode": run_mode,
+            },
+        )
+        result: list[ExistingExecutedTradeState] = []
+        for row in rows:
+            result.append(
+                ExistingExecutedTradeState(
+                    trade_id=_as_uuid(row["trade_id"]),
+                    lot_id=_as_uuid(row["lot_id"]),
+                    run_id=_as_uuid(row["run_id"]),
+                    run_mode=str(row["run_mode"]),
+                    account_id=int(row["account_id"]),
+                    asset_id=int(row["asset_id"]),
+                    quantity=_as_decimal(row["quantity"]),
                     row_hash=str(row["row_hash"]),
                 )
             )

@@ -97,6 +97,14 @@ class FixtureIds:
     hour_ts_utc: datetime
 
 
+@dataclass(frozen=True)
+class PreloadedLotIds:
+    signal_id: UUID
+    order_id: UUID
+    fill_id: UUID
+    lot_id: UUID
+
+
 def insert_runtime_fixture(
     db: PsycopgRuntimeDB,
     *,
@@ -111,6 +119,11 @@ def insert_runtime_fixture(
     risk_row_hash: str = "r" * 64,
     prediction_row_hash: str = "5" * 64,
     expected_return: Decimal = Decimal("0.020000000000000000"),
+    order_book_best_bid_price: Decimal = Decimal("99.000000000000000000"),
+    order_book_best_ask_price: Decimal = Decimal("100.000000000000000000"),
+    order_book_best_bid_size: Decimal = Decimal("1000000.000000000000000000"),
+    order_book_best_ask_size: Decimal = Decimal("1000000.000000000000000000"),
+    ohlcv_close_price: Decimal = Decimal("100.000000000000000000"),
 ) -> FixtureIds:
     """
     Insert deterministic minimal fixture rows required by Phase 1D runtime.
@@ -607,6 +620,55 @@ def insert_runtime_fixture(
         },
     )
 
+    ingest_run_id = run_id
+    db.execute(
+        """
+        INSERT INTO order_book_snapshot (
+            asset_id, snapshot_ts_utc, hour_ts_utc, best_bid_price, best_ask_price,
+            best_bid_size, best_ask_size, source_venue, ingest_run_id, row_hash
+        ) VALUES (
+            :asset_id, :snapshot_ts_utc, :hour_ts_utc, :best_bid_price, :best_ask_price,
+            :best_bid_size, :best_ask_size, 'KRAKEN', :ingest_run_id, :row_hash
+        )
+        """,
+        {
+            "asset_id": asset_id,
+            "snapshot_ts_utc": hour,
+            "hour_ts_utc": hour,
+            "best_bid_price": order_book_best_bid_price,
+            "best_ask_price": order_book_best_ask_price,
+            "best_bid_size": order_book_best_bid_size,
+            "best_ask_size": order_book_best_ask_size,
+            "ingest_run_id": str(ingest_run_id),
+            "row_hash": "1" * 64,
+        },
+    )
+
+    db.execute(
+        """
+        INSERT INTO market_ohlcv_hourly (
+            asset_id, hour_ts_utc, open_price, high_price, low_price, close_price,
+            volume_base, volume_quote, trade_count, source_venue, ingest_run_id, row_hash
+        ) VALUES (
+            :asset_id, :hour_ts_utc, :open_price, :high_price, :low_price, :close_price,
+            :volume_base, :volume_quote, :trade_count, 'KRAKEN', :ingest_run_id, :row_hash
+        )
+        """,
+        {
+            "asset_id": asset_id,
+            "hour_ts_utc": hour,
+            "open_price": ohlcv_close_price,
+            "high_price": ohlcv_close_price,
+            "low_price": ohlcv_close_price,
+            "close_price": ohlcv_close_price,
+            "volume_base": Decimal("0"),
+            "volume_quote": Decimal("0"),
+            "trade_count": 0,
+            "ingest_run_id": str(ingest_run_id),
+            "row_hash": "2" * 64,
+        },
+    )
+
     db.conn.commit()
 
     return FixtureIds(
@@ -616,4 +678,237 @@ def insert_runtime_fixture(
         model_version_id=model_version_id,
         cluster_membership_id=membership_id,
         hour_ts_utc=hour,
+    )
+
+
+def preload_open_lot_for_sell_path(
+    db: PsycopgRuntimeDB,
+    fixture: FixtureIds,
+    *,
+    seed: str,
+    quantity: Decimal = Decimal("1.000000000000000000"),
+    price: Decimal = Decimal("100.000000000000000000"),
+) -> PreloadedLotIds:
+    """Insert deterministic BUY signal/order/fill/lot rows for SELL-path integration tests."""
+    signal_id = deterministic_uuid(f"preload-signal-{seed}")
+    order_id = deterministic_uuid(f"preload-order-{seed}")
+    fill_id = deterministic_uuid(f"preload-fill-{seed}")
+    lot_id = deterministic_uuid(f"preload-lot-{seed}")
+
+    row_hash_signal = "3" * 64
+    row_hash_order = "4" * 64
+    row_hash_fill = "5" * 64
+    row_hash_lot = "6" * 64
+
+    notional = quantity * price
+    fee_rate = Decimal("0.004000")
+    slippage_rate = Decimal("0.000170")
+    fee_paid = notional * fee_rate
+    slippage_cost = notional * slippage_rate
+
+    cost_profile_row = db.fetch_one(
+        """
+        SELECT cost_profile_id
+        FROM cost_profile
+        WHERE venue = 'KRAKEN'
+          AND is_active = TRUE
+          AND effective_from_utc <= :hour_ts_utc
+          AND (effective_to_utc IS NULL OR effective_to_utc > :hour_ts_utc)
+        ORDER BY effective_from_utc DESC, cost_profile_id DESC
+        LIMIT 1
+        """,
+        {"hour_ts_utc": fixture.hour_ts_utc},
+    )
+    if cost_profile_row is None:
+        raise RuntimeError("No active cost_profile found for lot preloading.")
+    cost_profile_id = int(cost_profile_row["cost_profile_id"])
+
+    db.execute(
+        """
+        INSERT INTO trade_signal (
+            signal_id, run_id, run_mode, account_id, asset_id, hour_ts_utc, horizon,
+            action, direction, confidence, expected_return, assumed_fee_rate,
+            assumed_slippage_rate, net_edge, target_position_notional, position_size_fraction,
+            risk_state_hour_ts_utc, decision_hash, risk_state_run_id, cluster_membership_id,
+            upstream_hash, row_hash
+        ) VALUES (
+            :signal_id, :run_id, 'LIVE', :account_id, :asset_id, :hour_ts_utc, 'H4',
+            'ENTER', 'LONG', 0.5000000000, 0.010000000000000000, :assumed_fee_rate,
+            :assumed_slippage_rate, 0.005830000000000000, :target_position_notional, 0.0100000000,
+            :risk_state_hour_ts_utc, :decision_hash, :risk_state_run_id, :cluster_membership_id,
+            :upstream_hash, :row_hash
+        )
+        """,
+        {
+            "signal_id": str(signal_id),
+            "run_id": str(fixture.run_id),
+            "account_id": fixture.account_id,
+            "asset_id": fixture.asset_id,
+            "hour_ts_utc": fixture.hour_ts_utc,
+            "assumed_fee_rate": fee_rate,
+            "assumed_slippage_rate": slippage_rate,
+            "target_position_notional": notional,
+            "risk_state_hour_ts_utc": fixture.hour_ts_utc,
+            "decision_hash": "7" * 64,
+            "risk_state_run_id": str(fixture.run_id),
+            "cluster_membership_id": fixture.cluster_membership_id,
+            "upstream_hash": "8" * 64,
+            "row_hash": row_hash_signal,
+        },
+    )
+
+    db.execute(
+        """
+        INSERT INTO order_request (
+            order_id, signal_id, run_id, run_mode, account_id, asset_id, client_order_id,
+            request_ts_utc, hour_ts_utc, side, order_type, tif, limit_price, requested_qty,
+            requested_notional, pre_order_cash_available, risk_check_passed, status,
+            cost_profile_id, origin_hour_ts_utc, risk_state_run_id, cluster_membership_id,
+            parent_signal_hash, row_hash
+        ) VALUES (
+            :order_id, :signal_id, :run_id, 'LIVE', :account_id, :asset_id, :client_order_id,
+            :request_ts_utc, :hour_ts_utc, 'BUY', 'MARKET', 'IOC', NULL, :requested_qty,
+            :requested_notional, 10000.000000000000000000, TRUE, 'FILLED',
+            :cost_profile_id, :origin_hour_ts_utc, :risk_state_run_id, :cluster_membership_id,
+            :parent_signal_hash, :row_hash
+        )
+        """,
+        {
+            "order_id": str(order_id),
+            "signal_id": str(signal_id),
+            "run_id": str(fixture.run_id),
+            "account_id": fixture.account_id,
+            "asset_id": fixture.asset_id,
+            "client_order_id": f"preload-{order_id.hex[:16]}",
+            "request_ts_utc": fixture.hour_ts_utc,
+            "hour_ts_utc": fixture.hour_ts_utc,
+            "requested_qty": quantity,
+            "requested_notional": notional,
+            "cost_profile_id": cost_profile_id,
+            "origin_hour_ts_utc": fixture.hour_ts_utc,
+            "risk_state_run_id": str(fixture.run_id),
+            "cluster_membership_id": fixture.cluster_membership_id,
+            "parent_signal_hash": row_hash_signal,
+            "row_hash": row_hash_order,
+        },
+    )
+
+    db.execute(
+        """
+        INSERT INTO order_fill (
+            fill_id, order_id, run_id, run_mode, account_id, asset_id, exchange_trade_id,
+            fill_ts_utc, hour_ts_utc, fill_price, fill_qty, fill_notional, fee_paid,
+            fee_rate, realized_slippage_rate, origin_hour_ts_utc, slippage_cost,
+            parent_order_hash, row_hash, liquidity_flag
+        ) VALUES (
+            :fill_id, :order_id, :run_id, 'LIVE', :account_id, :asset_id, :exchange_trade_id,
+            :fill_ts_utc, :hour_ts_utc, :fill_price, :fill_qty, :fill_notional, :fee_paid,
+            :fee_rate, :realized_slippage_rate, :origin_hour_ts_utc, :slippage_cost,
+            :parent_order_hash, :row_hash, 'TAKER'
+        )
+        """,
+        {
+            "fill_id": str(fill_id),
+            "order_id": str(order_id),
+            "run_id": str(fixture.run_id),
+            "account_id": fixture.account_id,
+            "asset_id": fixture.asset_id,
+            "exchange_trade_id": f"preload-{fill_id.hex[:20]}",
+            "fill_ts_utc": fixture.hour_ts_utc,
+            "hour_ts_utc": fixture.hour_ts_utc,
+            "fill_price": price,
+            "fill_qty": quantity,
+            "fill_notional": notional,
+            "fee_paid": fee_paid,
+            "fee_rate": fee_rate,
+            "realized_slippage_rate": slippage_rate,
+            "origin_hour_ts_utc": fixture.hour_ts_utc,
+            "slippage_cost": slippage_cost,
+            "parent_order_hash": row_hash_order,
+            "row_hash": row_hash_fill,
+        },
+    )
+
+    db.execute(
+        """
+        INSERT INTO position_lot (
+            lot_id, open_fill_id, run_id, run_mode, account_id, asset_id, hour_ts_utc,
+            open_ts_utc, open_price, open_qty, open_notional, open_fee, remaining_qty,
+            origin_hour_ts_utc, parent_fill_hash, row_hash
+        ) VALUES (
+            :lot_id, :open_fill_id, :run_id, 'LIVE', :account_id, :asset_id, :hour_ts_utc,
+            :open_ts_utc, :open_price, :open_qty, :open_notional, :open_fee, :remaining_qty,
+            :origin_hour_ts_utc, :parent_fill_hash, :row_hash
+        )
+        """,
+        {
+            "lot_id": str(lot_id),
+            "open_fill_id": str(fill_id),
+            "run_id": str(fixture.run_id),
+            "account_id": fixture.account_id,
+            "asset_id": fixture.asset_id,
+            "hour_ts_utc": fixture.hour_ts_utc,
+            "open_ts_utc": fixture.hour_ts_utc,
+            "open_price": price,
+            "open_qty": quantity,
+            "open_notional": notional,
+            "open_fee": fee_paid,
+            "remaining_qty": quantity,
+            "origin_hour_ts_utc": fixture.hour_ts_utc,
+            "parent_fill_hash": row_hash_fill,
+            "row_hash": row_hash_lot,
+        },
+    )
+
+    risk_state_row = db.fetch_one(
+        """
+        SELECT row_hash
+        FROM risk_hourly_state
+        WHERE run_mode = 'LIVE'
+          AND account_id = :account_id
+          AND hour_ts_utc = :hour_ts_utc
+          AND source_run_id = :source_run_id
+        """,
+        {
+            "account_id": fixture.account_id,
+            "hour_ts_utc": fixture.hour_ts_utc,
+            "source_run_id": str(fixture.run_id),
+        },
+    )
+    if risk_state_row is None:
+        raise RuntimeError("Missing risk_hourly_state row for preloaded lot decision trace.")
+
+    risk_event_id = deterministic_uuid(f"preload-trace-{seed}")
+    db.execute(
+        """
+        INSERT INTO risk_event (
+            risk_event_id, run_id, run_mode, account_id, event_ts_utc, hour_ts_utc,
+            event_type, severity, reason_code, details, related_state_hour_ts_utc,
+            origin_hour_ts_utc, parent_state_hash, row_hash
+        ) VALUES (
+            :risk_event_id, :run_id, 'LIVE', :account_id, :event_ts_utc, :hour_ts_utc,
+            'DECISION_TRACE', 'LOW', 'VOLATILITY_SIZED', CAST(:details AS jsonb),
+            :related_state_hour_ts_utc, :origin_hour_ts_utc, :parent_state_hash, :row_hash
+        )
+        """,
+        {
+            "risk_event_id": str(risk_event_id),
+            "run_id": str(fixture.run_id),
+            "account_id": fixture.account_id,
+            "event_ts_utc": fixture.hour_ts_utc,
+            "hour_ts_utc": fixture.hour_ts_utc,
+            "details": '{"detail":"preloaded decision trace"}',
+            "related_state_hour_ts_utc": fixture.hour_ts_utc,
+            "origin_hour_ts_utc": fixture.hour_ts_utc,
+            "parent_state_hash": str(risk_state_row["row_hash"]),
+            "row_hash": "7" * 64,
+        },
+    )
+
+    db.conn.commit()
+    return PreloadedLotIds(
+        signal_id=signal_id,
+        order_id=order_id,
+        fill_id=fill_id,
+        lot_id=lot_id,
     )

@@ -202,7 +202,7 @@ Status:
 
 ---
 
-## PHASE 4 — ORDER LIFECYCLE ENGINE
+## PHASE 4 — ORDER LIFECYCLE ENGINE ✅ COMPLETED
 
 Implement:
 - Signal → Order → Fill → Lot → Trade
@@ -216,6 +216,15 @@ Must preserve:
 - No-leverage enforcement
 - Causal ordering
 - No fixed maximum holding-time cap
+
+Status:
+- ✅ Deterministic exchange adapter contract introduced.
+- ✅ Deterministic simulator adapter implemented (order-book first, OHLCV fallback).
+- ✅ Signal → Order → Fill → Lot → Trade lifecycle materialized with append-only writes.
+- ✅ Partial fill + deterministic retry schedule implemented (`+1m`, `+2m`, `+4m`).
+- ✅ FIFO lot allocation implemented for SELL fills with no-shorting guardrails.
+- ✅ Replay parity extended to `order_fill`, `position_lot`, and `executed_trade`.
+- ✅ Phase 4 validation gate added (`PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql`) and wired into pipeline.
 
 ---
 
@@ -430,13 +439,13 @@ Project is considered complete when:
 # 7. CURRENT POSITION
 
 Active Phase:
-Phase 4 — Order Lifecycle Engine (Ready to Start)
+Phase 5 — Portfolio & Ledger Engine (Ready to Start)
 
 Blockers:
-- None on deterministic core, replay harness closure, or Phase 3 runtime completion.
-- Phase 3 closure complete; Phase 4 execution can begin.
+- None on deterministic core, replay harness closure, Phase 3 runtime completion, or Phase 4 lifecycle closure.
+- Phase 4 closure complete; Phase 5 execution can begin.
 
-Deterministic core, replay harness, and governed Phase 3 runtime (Phase 1A/1B/1C/1D/2/3) are structurally complete and validated for Phase 4 entry.
+Deterministic core, replay harness, governed Phase 3 runtime, and deterministic Phase 4 order lifecycle (Phase 1A/1B/1C/1D/2/3/4) are structurally complete and validated for Phase 5 entry.
 
 ---
 

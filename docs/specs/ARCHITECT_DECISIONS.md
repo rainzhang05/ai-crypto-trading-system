@@ -505,4 +505,52 @@ Status: Approved and implemented; Phase 4 authorized
 
 ---
 
+## DECISION ARCH-0007 — PHASE 4 DETERMINISTIC ORDER LIFECYCLE CLOSURE
+
+Date: 2026-03-02  
+Module Affected: Execution Runtime, Replay Engine, Deterministic Context, Runtime Validation Layer
+
+### Description
+
+Phase 4 order lifecycle is formally closed with deterministic runtime implementation of:
+
+- order intent derivation from signal outcomes,
+- append-only order attempt rows (`order_request`) with deterministic retry schedule,
+- deterministic fills (`order_fill`) via adapter abstraction,
+- lot opening on BUY fills (`position_lot`),
+- FIFO trade realization on SELL fills (`executed_trade`),
+- replay parity extension for fill/lot/trade hashes.
+
+The implementation uses a deterministic simulator adapter for Phase 4 and does not introduce live exchange connectivity in this phase.
+
+### Reason
+
+Execution determinism and capital-preserving lifecycle traceability are required before Phase 5 economic writer integration and before external venue connectivity phases.
+
+### Risk Impact
+
+MEDIUM / CONTROLLED.
+
+- Positive: lifecycle causality and replay visibility are now complete at order/fill/lot/trade level.
+- Controlled risk: SELL allocation now enforces no-shorting behavior with explicit reason-code evidence for insufficient lot coverage.
+- No leverage policy and append-only protections remain schema-enforced.
+
+### Backtest Impact
+
+Yes, runtime artifact graph now includes additional deterministic execution tables:
+
+- `order_fill`
+- `position_lot`
+- `executed_trade`
+
+Historical deterministic scaffolding remains valid; replay contract is extended, not loosened.
+
+### Approval
+
+Architect: Approved  
+Auditor: Validation completed (`pytest -q`, `scripts/test_all.sh`, Phase 4 SQL gate)  
+Status: Approved and implemented; Phase 5 authorized
+
+---
+
 END OF ARCHITECTURAL DECISIONS LOG

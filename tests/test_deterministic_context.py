@@ -74,6 +74,18 @@ class _FakeDB:
             return list(self.payload.get("feature_snapshot", []))
         if "from position_hourly_state" in q:
             return list(self.payload.get("position_hourly_state", []))
+        if "from asset" in q:
+            return list(self.payload.get("asset", []))
+        if "from order_book_snapshot" in q:
+            return list(self.payload.get("order_book_snapshot", []))
+        if "from market_ohlcv_hourly" in q:
+            return list(self.payload.get("market_ohlcv_hourly", []))
+        if "from order_fill" in q:
+            return list(self.payload.get("order_fill", []))
+        if "from position_lot" in q:
+            return list(self.payload.get("position_lot", []))
+        if "from executed_trade" in q:
+            return list(self.payload.get("executed_trade", []))
         raise RuntimeError(f"Unhandled query: {sql}")
 
 
@@ -258,6 +270,37 @@ def _live_payload() -> dict[str, list[dict[str, Any]]]:
                 "row_hash": "w" * 64,
             }
         ],
+        "asset": [
+            {
+                "asset_id": 1,
+                "tick_size": Decimal("0.000000010000000000"),
+                "lot_size": Decimal("0.000000010000000000"),
+            }
+        ],
+        "order_book_snapshot": [
+            {
+                "asset_id": 1,
+                "snapshot_ts_utc": hour,
+                "hour_ts_utc": hour,
+                "best_bid_price": Decimal("99.000000000000000000"),
+                "best_ask_price": Decimal("100.000000000000000000"),
+                "best_bid_size": Decimal("10.000000000000000000"),
+                "best_ask_size": Decimal("10.000000000000000000"),
+                "row_hash": "8" * 64,
+            }
+        ],
+        "market_ohlcv_hourly": [
+            {
+                "asset_id": 1,
+                "hour_ts_utc": hour,
+                "close_price": Decimal("100.000000000000000000"),
+                "row_hash": "9" * 64,
+                "source_venue": "KRAKEN",
+            }
+        ],
+        "order_fill": [],
+        "position_lot": [],
+        "executed_trade": [],
         "cash_ledger": [],
         "model_training_window": [],
     }
@@ -459,6 +502,9 @@ def test_context_find_methods_return_none_when_absent() -> None:
     assert context.find_regime(asset_id=999, model_version_id=999) is None
     assert context.find_membership(asset_id=999) is None
     assert context.find_cluster_state(cluster_id=999) is None
+    assert context.find_asset_precision(asset_id=999) is None
+    assert context.find_ohlcv(asset_id=999) is None
+    assert context.find_existing_fill(UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")) is None
 
 
 def test_context_no_predictions_aborts() -> None:
@@ -983,6 +1029,108 @@ def test_context_find_volatility_and_position_none_paths() -> None:
     assert context.find_position(999) is None
 
 
+def test_context_order_book_and_executed_qty_helpers() -> None:
+    payload = _live_payload()
+    hour = payload["run_context"][0]["origin_hour_ts_utc"]
+    lot_id = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    fill_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    payload["order_book_snapshot"] = [
+        {
+            "asset_id": 1,
+            "snapshot_ts_utc": hour - timedelta(minutes=2),
+            "hour_ts_utc": hour,
+            "best_bid_price": Decimal("99.000000000000000000"),
+            "best_ask_price": Decimal("100.000000000000000000"),
+            "best_bid_size": Decimal("5.000000000000000000"),
+            "best_ask_size": Decimal("5.000000000000000000"),
+            "row_hash": "1" * 64,
+        },
+        {
+            "asset_id": 1,
+            "snapshot_ts_utc": hour + timedelta(minutes=1),  # should be ignored for as-of query
+            "hour_ts_utc": hour,
+            "best_bid_price": Decimal("98.000000000000000000"),
+            "best_ask_price": Decimal("101.000000000000000000"),
+            "best_bid_size": Decimal("6.000000000000000000"),
+            "best_ask_size": Decimal("6.000000000000000000"),
+            "row_hash": "2" * 64,
+        },
+        {
+            "asset_id": 999,  # should be ignored by asset filter
+            "snapshot_ts_utc": hour - timedelta(minutes=3),
+            "hour_ts_utc": hour,
+            "best_bid_price": Decimal("1.000000000000000000"),
+            "best_ask_price": Decimal("2.000000000000000000"),
+            "best_bid_size": Decimal("1.000000000000000000"),
+            "best_ask_size": Decimal("1.000000000000000000"),
+            "row_hash": "3" * 64,
+        },
+    ]
+    payload["order_fill"] = [
+        {
+            "fill_id": str(fill_id),
+            "order_id": str(UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc")),
+            "run_id": str(payload["run_context"][0]["run_id"]),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "fill_ts_utc": hour - timedelta(hours=1),
+            "fill_price": Decimal("100.000000000000000000"),
+            "fill_qty": Decimal("1.000000000000000000"),
+            "fill_notional": Decimal("100.000000000000000000"),
+            "fee_paid": Decimal("0.400000000000000000"),
+            "realized_slippage_rate": Decimal("0.000170"),
+            "slippage_cost": Decimal("0.017000000000000000"),
+            "row_hash": "4" * 64,
+        }
+    ]
+    payload["position_lot"] = [
+        {
+            "lot_id": str(lot_id),
+            "open_fill_id": str(fill_id),
+            "run_id": str(payload["run_context"][0]["run_id"]),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "open_ts_utc": hour - timedelta(hours=1),
+            "open_price": Decimal("100.000000000000000000"),
+            "open_qty": Decimal("1.000000000000000000"),
+            "open_fee": Decimal("0.400000000000000000"),
+            "remaining_qty": Decimal("1.000000000000000000"),
+            "row_hash": "5" * 64,
+        }
+    ]
+    payload["executed_trade"] = [
+        {
+            "trade_id": str(UUID("dddddddd-dddd-4ddd-8ddd-dddddddddddd")),
+            "lot_id": str(lot_id),
+            "run_id": str(payload["run_context"][0]["run_id"]),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "quantity": Decimal("0.250000000000000000"),
+            "row_hash": "6" * 64,
+        }
+    ]
+
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=hour,
+    )
+    snapshot = context.find_latest_order_book_snapshot(1, hour)
+    assert snapshot is not None
+    assert snapshot.snapshot_ts_utc == hour - timedelta(minutes=2)
+    assert context.find_ohlcv(1) is not None
+    mismatch_context = replace(
+        context,
+        order_book_snapshots=(replace(context.order_book_snapshots[0], asset_id=999),),
+    )
+    assert mismatch_context.find_latest_order_book_snapshot(1, hour) is None
+    assert context.executed_qty_for_lot(lot_id) == Decimal("0.250000000000000000")
+
+
 def test_context_risk_profile_validation_branches() -> None:
     payload = _live_payload()
     payload["risk_profile"][0]["total_exposure_mode"] = "INVALID"
@@ -1018,6 +1166,44 @@ def test_context_risk_profile_validation_branches() -> None:
     payload["risk_profile"][0]["volatility_scale_floor"] = Decimal("2.0000000000")
     payload["risk_profile"][0]["volatility_scale_ceiling"] = Decimal("1.0000000000")
     with pytest.raises(DeterministicAbortError, match="volatility scale floor/ceiling invalid"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+
+def test_context_missing_asset_precision_or_open_fill_abort() -> None:
+    payload = _live_payload()
+    payload["asset"] = []
+    with pytest.raises(DeterministicAbortError, match="Missing asset precision metadata"):
+        DeterministicContextBuilder(_FakeDB(payload)).build_context(
+            run_id=payload["run_context"][0]["run_id"],
+            account_id=1,
+            run_mode="LIVE",
+            hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+        )
+
+    payload = _live_payload()
+    payload["position_lot"] = [
+        {
+            "lot_id": str(UUID("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")),
+            "open_fill_id": str(UUID("ffffffff-ffff-4fff-8fff-ffffffffffff")),
+            "run_id": str(payload["run_context"][0]["run_id"]),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "open_ts_utc": payload["run_context"][0]["origin_hour_ts_utc"] - timedelta(hours=1),
+            "open_price": Decimal("100.000000000000000000"),
+            "open_qty": Decimal("1.000000000000000000"),
+            "open_fee": Decimal("0.400000000000000000"),
+            "remaining_qty": Decimal("1.000000000000000000"),
+            "row_hash": "9" * 64,
+        }
+    ]
+    payload["order_fill"] = []
+    with pytest.raises(DeterministicAbortError, match="missing matching order_fill row"):
         DeterministicContextBuilder(_FakeDB(payload)).build_context(
             run_id=payload["run_context"][0]["run_id"],
             account_id=1,

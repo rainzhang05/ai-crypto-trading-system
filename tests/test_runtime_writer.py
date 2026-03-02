@@ -194,6 +194,18 @@ class _FakeDB:
                     "row_hash": "w" * 64,
                 }
             ],
+            "asset": [
+                {
+                    "asset_id": 1,
+                    "tick_size": Decimal("0.000000010000000000"),
+                    "lot_size": Decimal("0.000000010000000000"),
+                }
+            ],
+            "order_book_snapshot": [],
+            "market_ohlcv_hourly": [],
+            "order_fill": [],
+            "position_lot": [],
+            "executed_trade": [],
             "cash_ledger": [],
             "model_training_window": [],
         }
@@ -240,6 +252,18 @@ class _FakeDB:
             return list(self.data["feature_snapshot"])
         if "from position_hourly_state" in q:
             return list(self.data["position_hourly_state"])
+        if "from asset" in q:
+            return list(self.data["asset"])
+        if "from order_book_snapshot" in q:
+            return list(self.data["order_book_snapshot"])
+        if "from market_ohlcv_hourly" in q:
+            return list(self.data["market_ohlcv_hourly"])
+        if "from order_fill" in q:
+            return list(self.data["order_fill"])
+        if "from position_lot" in q:
+            return list(self.data["position_lot"])
+        if "from executed_trade" in q:
+            return list(self.data["executed_trade"])
         if "from cash_ledger" in q:
             return []
         if "from model_training_window" in q:
@@ -412,3 +436,279 @@ def test_writer_order_request_returns_none_for_zero_notional() -> None:
     signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
     signal = replace(signal, action="ENTER", target_position_notional=Decimal("0"))
     assert writer.build_order_request_row(context, signal) is None
+
+
+def test_writer_builds_deterministic_fill_lot_and_trade_rows_with_correct_formulas() -> None:
+    db = _FakeDB()
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=db.data["run_context"][0]["origin_hour_ts_utc"],
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+    signal = replace(signal, action="ENTER", target_position_notional=Decimal("100.000000000000000000"))
+
+    buy_order = writer.build_order_request_attempt_row(
+        context=context,
+        signal=signal,
+        side="BUY",
+        request_ts_utc=context.run_context.origin_hour_ts_utc,
+        requested_qty=Decimal("1.000000000000000000"),
+        requested_notional=Decimal("100.000000000000000000"),
+        status="FILLED",
+        attempt_seq=0,
+    )
+    fill_a = writer.build_order_fill_row(
+        context=context,
+        order=buy_order,
+        fill_ts_utc=context.run_context.origin_hour_ts_utc,
+        fill_price=Decimal("100.000000000000000000"),
+        fill_qty=Decimal("1.000000000000000000"),
+        liquidity_flag="TAKER",
+        attempt_seq=0,
+    )
+    fill_b = writer.build_order_fill_row(
+        context=context,
+        order=buy_order,
+        fill_ts_utc=context.run_context.origin_hour_ts_utc,
+        fill_price=Decimal("100.000000000000000000"),
+        fill_qty=Decimal("1.000000000000000000"),
+        liquidity_flag="TAKER",
+        attempt_seq=0,
+    )
+    assert fill_a.row_hash == fill_b.row_hash
+    assert fill_a.fill_notional == Decimal("100.000000000000000000")
+    assert fill_a.fee_paid == Decimal("0.400000000000000000")
+    assert fill_a.slippage_cost == fill_a.fill_notional * fill_a.realized_slippage_rate
+
+    lot = writer.build_position_lot_row(context=context, fill=fill_a)
+    assert lot.open_notional == fill_a.fill_notional
+    assert lot.remaining_qty == lot.open_qty
+
+    sell_order = writer.build_order_request_attempt_row(
+        context=context,
+        signal=signal,
+        side="SELL",
+        request_ts_utc=context.run_context.origin_hour_ts_utc + timedelta(minutes=30),
+        requested_qty=Decimal("0.500000000000000000"),
+        requested_notional=Decimal("0.500000000000000000"),
+        status="FILLED",
+        attempt_seq=1,
+    )
+    exit_fill = writer.build_order_fill_row(
+        context=context,
+        order=sell_order,
+        fill_ts_utc=context.run_context.origin_hour_ts_utc + timedelta(hours=2),
+        fill_price=Decimal("110.000000000000000000"),
+        fill_qty=Decimal("0.500000000000000000"),
+        liquidity_flag="TAKER",
+        attempt_seq=1,
+    )
+    trade = writer.build_executed_trade_row(
+        context=context,
+        lot_id=lot.lot_id,
+        lot_asset_id=lot.asset_id,
+        entry_ts_utc=lot.open_ts_utc,
+        entry_price=lot.open_price,
+        lot_open_qty=lot.open_qty,
+        lot_open_fee=lot.open_fee,
+        entry_fill_slippage_cost=fill_a.slippage_cost,
+        parent_lot_hash=lot.row_hash,
+        exit_fill=exit_fill,
+        quantity=Decimal("0.500000000000000000"),
+    )
+    assert trade.gross_pnl == Decimal("5.000000000000000000")
+    assert trade.net_pnl == trade.gross_pnl - trade.total_fee - trade.total_slippage_cost
+    assert trade.holding_hours == 2
+
+
+def test_writer_order_request_row_builds_for_enter_signal() -> None:
+    db = _FakeDB()
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=db.data["run_context"][0]["origin_hour_ts_utc"],
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+    signal = replace(signal, action="ENTER", target_position_notional=Decimal("10.000000000000000000"))
+    row = writer.build_order_request_row(context, signal)
+    assert row is not None
+    assert row.side == "BUY"
+
+
+def test_writer_validation_branches_raise_expected_errors() -> None:
+    db = _FakeDB()
+    context = DeterministicContextBuilder(db).build_context(
+        run_id=db.data["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=db.data["run_context"][0]["origin_hour_ts_utc"],
+    )
+    writer = AppendOnlyRuntimeWriter(db)
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+    signal = replace(signal, action="ENTER", target_position_notional=Decimal("10.000000000000000000"))
+
+    with pytest.raises(Exception, match="Invalid order side"):
+        writer.build_order_request_attempt_row(
+            context=context,
+            signal=signal,
+            side="HOLD",
+            request_ts_utc=context.run_context.origin_hour_ts_utc,
+            requested_qty=Decimal("1"),
+            requested_notional=Decimal("1"),
+            status="NEW",
+            attempt_seq=0,
+        )
+    with pytest.raises(Exception, match="Invalid order status"):
+        writer.build_order_request_attempt_row(
+            context=context,
+            signal=signal,
+            side="BUY",
+            request_ts_utc=context.run_context.origin_hour_ts_utc,
+            requested_qty=Decimal("1"),
+            requested_notional=Decimal("1"),
+            status="UNKNOWN",
+            attempt_seq=0,
+        )
+    with pytest.raises(Exception, match="requested_qty must be positive"):
+        writer.build_order_request_attempt_row(
+            context=context,
+            signal=signal,
+            side="BUY",
+            request_ts_utc=context.run_context.origin_hour_ts_utc,
+            requested_qty=Decimal("0"),
+            requested_notional=Decimal("1"),
+            status="NEW",
+            attempt_seq=0,
+        )
+    with pytest.raises(Exception, match="requested_notional must be positive"):
+        writer.build_order_request_attempt_row(
+            context=context,
+            signal=signal,
+            side="BUY",
+            request_ts_utc=context.run_context.origin_hour_ts_utc,
+            requested_qty=Decimal("1"),
+            requested_notional=Decimal("0"),
+            status="NEW",
+            attempt_seq=0,
+        )
+    with pytest.raises(Exception, match="attempt_seq must be non-negative"):
+        writer.build_order_request_attempt_row(
+            context=context,
+            signal=signal,
+            side="BUY",
+            request_ts_utc=context.run_context.origin_hour_ts_utc,
+            requested_qty=Decimal("1"),
+            requested_notional=Decimal("1"),
+            status="NEW",
+            attempt_seq=-1,
+        )
+
+    order = writer.build_order_request_attempt_row(
+        context=context,
+        signal=signal,
+        side="BUY",
+        request_ts_utc=context.run_context.origin_hour_ts_utc,
+        requested_qty=Decimal("1"),
+        requested_notional=Decimal("1"),
+        status="NEW",
+        attempt_seq=0,
+    )
+    with pytest.raises(Exception, match="fill_qty must be positive"):
+        writer.build_order_fill_row(
+            context=context,
+            order=order,
+            fill_ts_utc=context.run_context.origin_hour_ts_utc,
+            fill_price=Decimal("100"),
+            fill_qty=Decimal("0"),
+            liquidity_flag="TAKER",
+            attempt_seq=0,
+        )
+    with pytest.raises(Exception, match="fill_price must be positive"):
+        writer.build_order_fill_row(
+            context=context,
+            order=order,
+            fill_ts_utc=context.run_context.origin_hour_ts_utc,
+            fill_price=Decimal("0"),
+            fill_qty=Decimal("1"),
+            liquidity_flag="TAKER",
+            attempt_seq=0,
+        )
+    with pytest.raises(Exception, match="Invalid liquidity_flag"):
+        writer.build_order_fill_row(
+            context=context,
+            order=order,
+            fill_ts_utc=context.run_context.origin_hour_ts_utc,
+            fill_price=Decimal("100"),
+            fill_qty=Decimal("1"),
+            liquidity_flag="BAD",
+            attempt_seq=0,
+        )
+
+    valid_fill = writer.build_order_fill_row(
+        context=context,
+        order=order,
+        fill_ts_utc=context.run_context.origin_hour_ts_utc,
+        fill_price=Decimal("100"),
+        fill_qty=Decimal("1"),
+        liquidity_flag="TAKER",
+        attempt_seq=0,
+    )
+    bad_fill = replace(valid_fill, fill_qty=Decimal("0"))
+    with pytest.raises(Exception, match="non-positive fill_qty"):
+        writer.build_position_lot_row(context=context, fill=bad_fill)
+
+    with pytest.raises(Exception, match="Executed trade quantity must be positive"):
+        writer.build_executed_trade_row(
+            context=context,
+            lot_id=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+            lot_asset_id=1,
+            entry_ts_utc=context.run_context.origin_hour_ts_utc,
+            entry_price=Decimal("100"),
+            lot_open_qty=Decimal("1"),
+            lot_open_fee=Decimal("1"),
+            entry_fill_slippage_cost=Decimal("0.1"),
+            parent_lot_hash="a" * 64,
+            exit_fill=valid_fill,
+            quantity=Decimal("0"),
+        )
+    with pytest.raises(Exception, match="Lot open quantity must be positive"):
+        writer.build_executed_trade_row(
+            context=context,
+            lot_id=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+            lot_asset_id=1,
+            entry_ts_utc=context.run_context.origin_hour_ts_utc,
+            entry_price=Decimal("100"),
+            lot_open_qty=Decimal("0"),
+            lot_open_fee=Decimal("1"),
+            entry_fill_slippage_cost=Decimal("0.1"),
+            parent_lot_hash="b" * 64,
+            exit_fill=valid_fill,
+            quantity=Decimal("1"),
+        )

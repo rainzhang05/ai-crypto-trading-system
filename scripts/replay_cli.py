@@ -195,6 +195,9 @@ def main() -> int:
             payload = {
                 "trade_signals": len(result.trade_signals),
                 "order_requests": len(result.order_requests),
+                "order_fills": len(result.order_fills),
+                "position_lots": len(result.position_lots),
+                "executed_trades": len(result.executed_trades),
                 "risk_events": len(result.risk_events),
             }
             print(json.dumps(payload, sort_keys=True))

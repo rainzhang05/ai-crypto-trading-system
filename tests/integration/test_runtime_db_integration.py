@@ -9,7 +9,12 @@ from typing import Any
 import pytest
 
 from execution.replay_engine import execute_hour, replay_hour
-from tests.utils.runtime_db import PsycopgRuntimeDB, deterministic_uuid, insert_runtime_fixture
+from tests.utils.runtime_db import (
+    PsycopgRuntimeDB,
+    deterministic_uuid,
+    insert_runtime_fixture,
+    preload_open_lot_for_sell_path,
+)
 
 
 def _count_rows(db: PsycopgRuntimeDB, table: str, run_id: str) -> int:
@@ -42,11 +47,17 @@ def test_execute_hour_success_and_replay_parity(runtime_db: PsycopgRuntimeDB) ->
 
     assert len(result.trade_signals) == 1
     assert len(result.order_requests) == 1
+    assert len(result.order_fills) == 1
+    assert len(result.position_lots) == 1
+    assert len(result.executed_trades) == 0
     assert len(result.risk_events) == 1
     assert report.mismatch_count == 0
 
     assert _count_rows(runtime_db, "trade_signal", str(fixture.run_id)) == 1
     assert _count_rows(runtime_db, "order_request", str(fixture.run_id)) == 1
+    assert _count_rows(runtime_db, "order_fill", str(fixture.run_id)) == 1
+    assert _count_rows(runtime_db, "position_lot", str(fixture.run_id)) == 1
+    assert _count_rows(runtime_db, "executed_trade", str(fixture.run_id)) == 0
     assert _count_rows(runtime_db, "risk_event", str(fixture.run_id)) == 1
 
     hash_row = runtime_db.fetch_one(
@@ -72,6 +83,23 @@ def test_execute_hour_success_and_replay_parity(runtime_db: PsycopgRuntimeDB) ->
         )
         runtime_db.conn.commit()
     runtime_db.conn.rollback()
+
+    causality_row = runtime_db.fetch_one(
+        """
+        SELECT COUNT(*) AS violations
+        FROM order_fill f
+        JOIN order_request r
+          ON r.order_id = f.order_id
+         AND r.run_id = f.run_id
+         AND r.run_mode = f.run_mode
+         AND r.account_id = f.account_id
+        WHERE f.run_id = :run_id
+          AND f.fill_ts_utc < r.request_ts_utc
+        """,
+        {"run_id": str(fixture.run_id)},
+    )
+    assert causality_row is not None
+    assert int(causality_row["violations"]) == 0
 
 
 def test_activation_gate_revoked_blocks_order_and_logs_risk_event(runtime_db: PsycopgRuntimeDB) -> None:
@@ -184,3 +212,52 @@ def test_parent_hash_mismatch_aborts_insert_without_partial_writes(runtime_db: P
     )
     assert run_ctx_rows is not None
     assert int(run_ctx_rows["n"]) == 0
+
+
+def test_exit_path_with_preloaded_lot_persists_executed_trade(runtime_db: PsycopgRuntimeDB) -> None:
+    fixture = insert_runtime_fixture(
+        runtime_db,
+        seed="int_exit_with_lot",
+        prediction_row_hash="3" * 64,  # deterministic_decision => EXIT
+        expected_return=Decimal("-0.020000000000000000"),
+    )
+    preload_open_lot_for_sell_path(runtime_db, fixture, seed="int_exit_with_lot")
+
+    result = execute_hour(
+        db=runtime_db,
+        run_id=fixture.run_id,
+        account_id=fixture.account_id,
+        run_mode="LIVE",
+        hour_ts_utc=fixture.hour_ts_utc,
+    )
+    assert len(result.order_requests) >= 1
+    assert all(order.side == "SELL" for order in result.order_requests)
+    assert len(result.order_fills) >= 1
+    assert len(result.executed_trades) >= 1
+
+    count_row = runtime_db.fetch_one(
+        "SELECT COUNT(*) AS n FROM executed_trade WHERE run_id = :run_id",
+        {"run_id": str(fixture.run_id)},
+    )
+    assert count_row is not None
+    assert int(count_row["n"]) >= 1
+
+
+def test_exit_path_without_lots_emits_no_shorting_guard(runtime_db: PsycopgRuntimeDB) -> None:
+    fixture = insert_runtime_fixture(
+        runtime_db,
+        seed="int_exit_without_lots",
+        prediction_row_hash="3" * 64,  # deterministic_decision => EXIT
+        expected_return=Decimal("-0.020000000000000000"),
+    )
+    result = execute_hour(
+        db=runtime_db,
+        run_id=fixture.run_id,
+        account_id=fixture.account_id,
+        run_mode="LIVE",
+        hour_ts_utc=fixture.hour_ts_utc,
+    )
+    assert len(result.order_requests) >= 1
+    assert all(order.side == "SELL" for order in result.order_requests)
+    assert len(result.executed_trades) == 0
+    assert any(event.reason_code == "SELL_ALLOCATION_INSUFFICIENT_LOTS" for event in result.risk_events)

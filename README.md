@@ -16,8 +16,8 @@ Core intent:
 
 Current project state:
 
-- Phase 0-3 deterministic core, replay harness, and governed risk runtime are complete.
-- Phase 4 (order lifecycle engine) is ready to begin per `docs/specs/PROJECT_ROADMAP.md`.
+- Phase 0-4 deterministic core, replay harness, governed risk runtime, and deterministic order lifecycle engine are complete.
+- Phase 5 (portfolio and ledger engine writers) is the next implementation target per `docs/specs/PROJECT_ROADMAP.md`.
 
 ---
 

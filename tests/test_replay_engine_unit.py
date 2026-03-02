@@ -11,14 +11,24 @@ from uuid import UUID
 import pytest
 
 import execution.replay_engine as replay_engine_module
-from execution.decision_engine import DecisionResult
+from execution.decision_engine import DecisionResult, deterministic_decision
 from execution.deterministic_context import DeterministicAbortError, DeterministicContextBuilder
+from execution.deterministic_context import ExistingPositionLotState
 from execution.replay_engine import (
+    _OrderIntent,
+    _allocate_sell_fill_fifo,
+    _attempt_requested_notional,
+    _build_fifo_lot_views_for_asset,
     _cluster_state_hash_for_prediction,
+    _compare_fills,
+    _compare_lots,
     _compare_orders,
     _compare_risk_events,
     _compare_signals,
+    _compare_trades,
+    _derive_order_intent,
     _plan_runtime_artifacts,
+    _round_down_to_lot_size,
     execute_hour,
     replay_hour,
 )
@@ -205,8 +215,39 @@ class _FakeDB:
                     "row_hash": "w" * 64,
                 }
             ],
+            "asset": [
+                {
+                    "asset_id": 1,
+                    "tick_size": Decimal("0.000000010000000000"),
+                    "lot_size": Decimal("0.000000010000000000"),
+                }
+            ],
+            "order_book_snapshot": [
+                {
+                    "asset_id": 1,
+                    "snapshot_ts_utc": hour,
+                    "hour_ts_utc": hour,
+                    "best_bid_price": Decimal("99.000000000000000000"),
+                    "best_ask_price": Decimal("100.000000000000000000"),
+                    "best_bid_size": Decimal("1000000.000000000000000000"),
+                    "best_ask_size": Decimal("1000000.000000000000000000"),
+                    "row_hash": "y" * 64,
+                }
+            ],
+            "market_ohlcv_hourly": [
+                {
+                    "asset_id": 1,
+                    "hour_ts_utc": hour,
+                    "close_price": Decimal("100.000000000000000000"),
+                    "row_hash": "z" * 64,
+                    "source_venue": "KRAKEN",
+                }
+            ],
             "trade_signal": [],
             "order_request": [],
+            "order_fill": [],
+            "position_lot": [],
+            "executed_trade": [],
             "risk_event": [],
             "cash_ledger": [],
             "model_training_window": [],
@@ -264,10 +305,22 @@ class _FakeDB:
             return list(self.rows["feature_snapshot"])
         if "from position_hourly_state" in q:
             return list(self.rows["position_hourly_state"])
+        if "from asset" in q:
+            return list(self.rows["asset"])
+        if "from order_book_snapshot" in q:
+            return list(self.rows["order_book_snapshot"])
+        if "from market_ohlcv_hourly" in q:
+            return list(self.rows["market_ohlcv_hourly"])
         if "from trade_signal" in q:
             return list(self.rows["trade_signal"])
         if "from order_request" in q:
             return list(self.rows["order_request"])
+        if "from order_fill" in q:
+            return list(self.rows["order_fill"])
+        if "from position_lot" in q:
+            return list(self.rows["position_lot"])
+        if "from executed_trade" in q:
+            return list(self.rows["executed_trade"])
         if "from risk_event" in q:
             return list(self.rows["risk_event"])
         if "from cash_ledger" in q:
@@ -292,6 +345,15 @@ class _FakeDB:
                 {"order_id": params["order_id"], "row_hash": params["row_hash"]}
             )
             return
+        if "insert into order_fill" in q:
+            self.rows["order_fill"].append(dict(params))
+            return
+        if "insert into position_lot" in q:
+            self.rows["position_lot"].append(dict(params))
+            return
+        if "insert into executed_trade" in q:
+            self.rows["executed_trade"].append(dict(params))
+            return
         if "insert into risk_event" in q:
             self.rows["risk_event"].append(
                 {
@@ -310,6 +372,9 @@ def test_execute_and_replay_have_zero_mismatch() -> None:
     report = replay_hour(db, db.run_id, 1, hour)
     assert len(result.trade_signals) == 1
     assert len(result.order_requests) == 1
+    assert len(result.order_fills) == 1
+    assert len(result.position_lots) == 1
+    assert len(result.executed_trades) == 0
     assert report.mismatch_count == 0
 
 
@@ -602,3 +667,494 @@ def test_plan_runtime_artifacts_dual_halt_and_kill_emits_kill_switch_reason(
     gating_events = tuple(event for event in planned.risk_events if event.event_type != "DECISION_TRACE")
     assert any(event.reason_code == "KILL_SWITCH_ACTIVE" for event in gating_events)
     assert all(event.reason_code != "HALT_NEW_ENTRIES_ACTIVE" for event in gating_events)
+
+
+def test_plan_runtime_artifacts_exit_generates_sell_and_trade_with_preloaded_lot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.rows["model_prediction"][0]["expected_return"] = Decimal("-0.020000000000000000")
+
+    open_fill_id = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    lot_id = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+    db.rows["order_fill"].append(
+        {
+            "fill_id": str(open_fill_id),
+            "order_id": str(UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc")),
+            "run_id": str(db.run_id),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "fill_ts_utc": hour - timedelta(hours=1),
+            "fill_price": Decimal("95.000000000000000000"),
+            "fill_qty": Decimal("1.000000000000000000"),
+            "fill_notional": Decimal("95.000000000000000000"),
+            "fee_paid": Decimal("0.380000000000000000"),
+            "realized_slippage_rate": Decimal("0.000170"),
+            "slippage_cost": Decimal("0.016150000000000000"),
+            "row_hash": "a1" * 32,
+        }
+    )
+    db.rows["position_lot"].append(
+        {
+            "lot_id": str(lot_id),
+            "open_fill_id": str(open_fill_id),
+            "run_id": str(db.run_id),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "open_ts_utc": hour - timedelta(hours=1),
+            "open_price": Decimal("95.000000000000000000"),
+            "open_qty": Decimal("1.000000000000000000"),
+            "open_fee": Decimal("0.380000000000000000"),
+            "remaining_qty": Decimal("1.000000000000000000"),
+            "row_hash": "b1" * 32,
+        }
+    )
+
+    monkeypatch.setattr(
+        replay_engine_module,
+        "deterministic_decision",
+        lambda **_: DecisionResult(
+            decision_hash="d" * 64,
+            action="EXIT",
+            direction="FLAT",
+            confidence=Decimal("0.7000000000"),
+            position_size_fraction=Decimal("0.0000000000"),
+        ),
+    )
+
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    assert len(result.order_requests) == 1
+    assert result.order_requests[0].side == "SELL"
+    assert len(result.order_fills) == 1
+    assert len(result.executed_trades) == 1
+    assert result.executed_trades[0].lot_id == lot_id
+
+
+def test_plan_runtime_artifacts_hold_derisk_emits_partial_sell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.rows["risk_hourly_state"][0]["drawdown_pct"] = Decimal("0.2500000000")
+    db.rows["risk_hourly_state"][0]["drawdown_tier"] = "DD25"
+    db.rows["model_prediction"][0]["prob_up"] = Decimal("0.5000000000")
+    db.rows["model_prediction"][0]["expected_return"] = Decimal("0.001000000000000000")
+    db.rows["position_hourly_state"][0]["quantity"] = Decimal("2.000000000000000000")
+    db.rows["order_book_snapshot"][0]["best_bid_size"] = Decimal("1000000.000000000000000000")
+
+    monkeypatch.setattr(
+        replay_engine_module,
+        "deterministic_decision",
+        lambda **_: DecisionResult(
+            decision_hash="e" * 64,
+            action="HOLD",
+            direction="FLAT",
+            confidence=Decimal("0.6000000000"),
+            position_size_fraction=Decimal("0.0000000000"),
+        ),
+    )
+
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    assert len(result.order_requests) >= 1
+    assert result.order_requests[0].side == "SELL"
+    assert result.order_requests[0].requested_qty == Decimal("1.000000000000000000")
+    assert any(event.reason_code == "SEVERE_RECOVERY_DERISK_ORDER_EMITTED" for event in result.risk_events)
+
+
+def test_plan_runtime_artifacts_partial_fill_retries_and_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.rows["order_book_snapshot"][0]["best_ask_size"] = Decimal("1.000000000000000000")
+
+    monkeypatch.setattr(
+        replay_engine_module,
+        "deterministic_decision",
+        lambda **_: DecisionResult(
+            decision_hash="f" * 64,
+            action="ENTER",
+            direction="LONG",
+            confidence=Decimal("0.9000000000"),
+            position_size_fraction=Decimal("0.9000000000"),
+        ),
+    )
+
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    assert len(result.order_requests) == 4
+    assert any(order.status == "PARTIAL" for order in result.order_requests)
+    assert any(event.reason_code == "ORDER_RETRY_EXHAUSTED" for event in result.risk_events)
+
+
+def test_compare_fills_presence_and_hash_mismatch_branches() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    fill = result.order_fills[0]
+
+    stored_extra = [
+        {"fill_id": "extra", "row_hash": "0" * 64},
+        {"fill_id": str(fill.fill_id), "row_hash": fill.row_hash},
+    ]
+    mismatches = _compare_fills(result.order_fills, stored_extra)
+    assert any(m.field_name == "presence" and m.actual == "stored_present" for m in mismatches)
+
+    mismatches = _compare_fills(result.order_fills, [])
+    assert any(m.field_name == "presence" and m.actual == "stored_absent" for m in mismatches)
+
+    mismatches = _compare_fills(
+        result.order_fills,
+        [{"fill_id": str(fill.fill_id), "row_hash": "f" * 64}],
+    )
+    assert any(m.field_name == "row_hash" for m in mismatches)
+
+
+def test_compare_lots_presence_and_hash_mismatch_branches() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    lot = result.position_lots[0]
+
+    stored_extra = [
+        {"lot_id": "extra", "row_hash": "0" * 64},
+        {"lot_id": str(lot.lot_id), "row_hash": lot.row_hash},
+    ]
+    mismatches = _compare_lots(result.position_lots, stored_extra)
+    assert any(m.field_name == "presence" and m.actual == "stored_present" for m in mismatches)
+
+    mismatches = _compare_lots(result.position_lots, [])
+    assert any(m.field_name == "presence" and m.actual == "stored_absent" for m in mismatches)
+
+    mismatches = _compare_lots(
+        result.position_lots,
+        [{"lot_id": str(lot.lot_id), "row_hash": "f" * 64}],
+    )
+    assert any(m.field_name == "row_hash" for m in mismatches)
+
+
+def test_compare_trades_presence_and_hash_mismatch_branches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.rows["model_prediction"][0]["expected_return"] = Decimal("-0.020000000000000000")
+
+    open_fill_id = UUID("dddddddd-dddd-4ddd-8ddd-dddddddddddd")
+    lot_id = UUID("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")
+    db.rows["order_fill"].append(
+        {
+            "fill_id": str(open_fill_id),
+            "order_id": str(UUID("ffffffff-ffff-4fff-8fff-ffffffffffff")),
+            "run_id": str(db.run_id),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "fill_ts_utc": hour - timedelta(hours=1),
+            "fill_price": Decimal("95.000000000000000000"),
+            "fill_qty": Decimal("1.000000000000000000"),
+            "fill_notional": Decimal("95.000000000000000000"),
+            "fee_paid": Decimal("0.380000000000000000"),
+            "realized_slippage_rate": Decimal("0.000170"),
+            "slippage_cost": Decimal("0.016150000000000000"),
+            "row_hash": "c1" * 32,
+        }
+    )
+    db.rows["position_lot"].append(
+        {
+            "lot_id": str(lot_id),
+            "open_fill_id": str(open_fill_id),
+            "run_id": str(db.run_id),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "open_ts_utc": hour - timedelta(hours=1),
+            "open_price": Decimal("95.000000000000000000"),
+            "open_qty": Decimal("1.000000000000000000"),
+            "open_fee": Decimal("0.380000000000000000"),
+            "remaining_qty": Decimal("1.000000000000000000"),
+            "row_hash": "d1" * 32,
+        }
+    )
+
+    monkeypatch.setattr(
+        replay_engine_module,
+        "deterministic_decision",
+        lambda **_: DecisionResult(
+            decision_hash="1" * 64,
+            action="EXIT",
+            direction="FLAT",
+            confidence=Decimal("0.7000000000"),
+            position_size_fraction=Decimal("0.0000000000"),
+        ),
+    )
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    trade = result.executed_trades[0]
+
+    stored_extra = [
+        {"trade_id": "extra", "row_hash": "0" * 64},
+        {"trade_id": str(trade.trade_id), "row_hash": trade.row_hash},
+    ]
+    mismatches = _compare_trades(result.executed_trades, stored_extra)
+    assert any(m.field_name == "presence" and m.actual == "stored_present" for m in mismatches)
+
+    mismatches = _compare_trades(result.executed_trades, [])
+    assert any(m.field_name == "presence" and m.actual == "stored_absent" for m in mismatches)
+
+    mismatches = _compare_trades(
+        result.executed_trades,
+        [{"trade_id": str(trade.trade_id), "row_hash": "f" * 64}],
+    )
+    assert any(m.field_name == "row_hash" for m in mismatches)
+
+
+def test_derive_order_intent_validation_and_branch_coverage() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    writer = AppendOnlyRuntimeWriter(db)
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+
+    with pytest.raises(DeterministicAbortError, match="Missing asset precision"):
+        _derive_order_intent(
+            context=replace(context, asset_precisions=tuple()),
+            writer=writer,
+            signal=replace(signal, action="ENTER", target_position_notional=Decimal("1")),
+            severe_recovery_reason_code="NO_SEVERE_LOSS_RECOVERY",
+        )
+
+    with pytest.raises(DeterministicAbortError, match="Invalid lot_size"):
+        bad_asset = replace(context.asset_precisions[0], lot_size=Decimal("0"))
+        _derive_order_intent(
+            context=replace(context, asset_precisions=(bad_asset,)),
+            writer=writer,
+            signal=replace(signal, action="ENTER", target_position_notional=Decimal("1")),
+            severe_recovery_reason_code="NO_SEVERE_LOSS_RECOVERY",
+        )
+
+    intent, _ = _derive_order_intent(
+        context=context,
+        writer=writer,
+        signal=replace(signal, action="ENTER", target_position_notional=Decimal("1")),
+        severe_recovery_reason_code="NO_SEVERE_LOSS_RECOVERY",
+    )
+    assert intent is not None
+
+    no_inventory_context = replace(
+        context,
+        positions=(replace(context.positions[0], quantity=Decimal("0")),),
+    )
+    intent_none, events = _derive_order_intent(
+        context=no_inventory_context,
+        writer=writer,
+        signal=replace(signal, action="EXIT"),
+        severe_recovery_reason_code="NO_SEVERE_LOSS_RECOVERY",
+    )
+    assert intent_none is None
+    assert any(event.reason_code == "NO_INVENTORY_FOR_SELL" for event in events)
+
+    derisk_none, derisk_events = _derive_order_intent(
+        context=no_inventory_context,
+        writer=writer,
+        signal=replace(signal, action="HOLD"),
+        severe_recovery_reason_code="SEVERE_RECOVERY_DERISK_INTENT",
+    )
+    assert derisk_none is None
+    assert any(event.reason_code == "NO_INVENTORY_FOR_SELL" for event in derisk_events)
+
+    clipped_profile = replace(context.risk_profile, derisk_fraction=Decimal("1.5000000000"))
+    _, clipped_events = _derive_order_intent(
+        context=replace(context, risk_profile=clipped_profile),
+        writer=writer,
+        signal=replace(signal, action="HOLD"),
+        severe_recovery_reason_code="SEVERE_RECOVERY_DERISK_INTENT",
+    )
+    assert any(event.reason_code == "SELL_QTY_CLIPPED_TO_INVENTORY" for event in clipped_events)
+
+    huge_lot_context = replace(
+        context,
+        asset_precisions=(replace(context.asset_precisions[0], lot_size=Decimal("10.000000000000000000")),),
+    )
+    intent_none, events = _derive_order_intent(
+        context=huge_lot_context,
+        writer=writer,
+        signal=replace(signal, action="HOLD"),
+        severe_recovery_reason_code="SEVERE_RECOVERY_DERISK_INTENT",
+    )
+    assert intent_none is None
+    assert any(event.reason_code == "ORDER_QTY_BELOW_LOT_SIZE" for event in events)
+
+
+def test_materialize_order_lifecycle_unavailable_price_branches() -> None:
+    db = _FakeDB()
+    db.rows["order_book_snapshot"] = []
+    db.rows["market_ohlcv_hourly"] = []
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    writer = AppendOnlyRuntimeWriter(db)
+
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+    signal = replace(signal, action="ENTER", target_position_notional=Decimal("2.000000000000000000"))
+    intent = _OrderIntent(
+        side="BUY",
+        requested_qty=Decimal("2.000000000000000000"),
+        requested_notional=Decimal("2.000000000000000000"),
+        source_reason_code="SIGNAL_ENTER",
+    )
+    orders, fills, lots, trades, events = replay_engine_module._materialize_order_lifecycle(
+        context=context,
+        writer=writer,
+        adapter=replay_engine_module.DeterministicExchangeSimulator(),
+        signal=signal,
+        intent=intent,
+        planned_lots_by_asset={},
+        planned_fills_by_id={},
+        planned_lot_consumed_qty={},
+    )
+    assert len(orders) == 4
+    assert all(order.status == "CANCELLED" for order in orders)
+    assert len(fills) == 0
+    assert len(lots) == 0
+    assert len(trades) == 0
+    assert any(event.reason_code == "ORDER_PRICE_UNAVAILABLE" for event in events)
+    assert any(event.reason_code == "ORDER_RETRY_EXHAUSTED" for event in events)
+
+
+def test_fifo_helpers_and_numeric_guards_cover_remaining_branches() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    writer = AppendOnlyRuntimeWriter(db)
+    decision = deterministic_decision(
+        prediction_hash=context.predictions[0].row_hash,
+        regime_hash=context.regimes[0].row_hash,
+        capital_state_hash=context.capital_state.row_hash,
+        risk_state_hash=context.risk_state.row_hash,
+        cluster_state_hash=context.cluster_states[0].row_hash,
+    )
+    signal = writer.build_trade_signal_row(context, context.predictions[0], context.regimes[0], decision)
+    signal = replace(signal, action="ENTER", target_position_notional=Decimal("1.000000000000000000"))
+
+    order = writer.build_order_request_attempt_row(
+        context=context,
+        signal=signal,
+        side="BUY",
+        request_ts_utc=hour,
+        requested_qty=Decimal("1"),
+        requested_notional=Decimal("1"),
+        status="FILLED",
+        attempt_seq=0,
+    )
+    fill = writer.build_order_fill_row(
+        context=context,
+        order=order,
+        fill_ts_utc=hour,
+        fill_price=Decimal("100"),
+        fill_qty=Decimal("1"),
+        liquidity_flag="TAKER",
+        attempt_seq=0,
+    )
+    lot = writer.build_position_lot_row(context=context, fill=fill)
+
+    # Missing open fill for existing lot branch.
+    fabricated_lot = ExistingPositionLotState(
+        lot_id=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+        open_fill_id=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+        run_id=context.run_context.run_id,
+        run_mode=context.run_context.run_mode,
+        account_id=context.run_context.account_id,
+        asset_id=1,
+        open_ts_utc=hour - timedelta(hours=1),
+        open_price=Decimal("100"),
+        open_qty=Decimal("1"),
+        open_fee=Decimal("1"),
+        remaining_qty=Decimal("1"),
+        row_hash="a" * 64,
+    )
+    missing_existing_context = replace(
+        context,
+        existing_position_lots=(fabricated_lot,),
+        existing_order_fills=tuple(),
+    )
+    with pytest.raises(DeterministicAbortError, match="Missing open_fill_id"):
+        _build_fifo_lot_views_for_asset(
+            context=missing_existing_context,
+            asset_id=1,
+            planned_lots_by_asset={},
+            planned_fills_by_id={},
+        )
+
+    with pytest.raises(DeterministicAbortError, match="Missing planned fill"):
+        _build_fifo_lot_views_for_asset(
+            context=context,
+            asset_id=1,
+            planned_lots_by_asset={1: [lot]},
+            planned_fills_by_id={},
+        )
+
+    # cover _allocate_sell_fill_fifo loop guards (break/continue)
+    zero_fill = replace(fill, fill_qty=Decimal("0.000000000000000000"))
+    residual = _allocate_sell_fill_fifo(
+        context=context,
+        writer=writer,
+        fill=zero_fill,
+        planned_lots_by_asset={1: [lot]},
+        planned_fills_by_id={fill.fill_id: fill},
+        planned_lot_consumed_qty={},
+        trade_rows=[],
+    )
+    assert residual == Decimal("0.000000000000000000")
+
+    residual = _allocate_sell_fill_fifo(
+        context=context,
+        writer=writer,
+        fill=replace(fill, fill_qty=Decimal("1.000000000000000000")),
+        planned_lots_by_asset={1: [lot]},
+        planned_fills_by_id={fill.fill_id: fill},
+        planned_lot_consumed_qty={lot.lot_id: lot.open_qty},
+        trade_rows=[],
+    )
+    assert residual == Decimal("1.000000000000000000")
+
+    # requested_notional helper guards
+    with pytest.raises(DeterministicAbortError, match="requested_qty must be positive"):
+        _attempt_requested_notional(
+            intent=_OrderIntent(
+                side="BUY",
+                requested_qty=Decimal("1"),
+                requested_notional=Decimal("1"),
+                source_reason_code="SIGNAL_ENTER",
+            ),
+            requested_qty=Decimal("0"),
+        )
+    assert _attempt_requested_notional(
+        intent=_OrderIntent(
+            side="BUY",
+            requested_qty=Decimal("1"),
+            requested_notional=Decimal("0"),
+            source_reason_code="SIGNAL_ENTER",
+        ),
+        requested_qty=Decimal("1"),
+    ) == Decimal("1.000000000000000000")
+
+    # lot-size helper guards
+    assert _round_down_to_lot_size(Decimal("0"), Decimal("0.1")) == Decimal("0.000000000000000000")
+    with pytest.raises(DeterministicAbortError, match="lot_size must be positive"):
+        _round_down_to_lot_size(Decimal("1"), Decimal("0"))
+    assert _round_down_to_lot_size(Decimal("0.01"), Decimal("1")) == Decimal("0.000000000000000000")
