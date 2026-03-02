@@ -35,7 +35,11 @@ def test_load_phase6_config_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = load_phase6_config()
     assert cfg.hist_market_data_provider == "COINAPI"
     assert cfg.universe_ranking_source == "COINAPI"
+    assert cfg.console_log_enabled is True
     assert cfg.ingestion_loop_seconds == 60
+    assert cfg.bootstrap_lookback_days == 7000
+    assert cfg.adaptive_trade_poll_zero_streak == 3
+    assert cfg.adaptive_trade_poll_interval_minutes == 5
     assert cfg.force_local_data_for_training is True
     assert cfg.allow_provider_calls_during_training is False
     assert cfg.drift_retrain_cooldown_minutes == 360
@@ -92,6 +96,7 @@ def test_load_phase6_config_boolean_defaults_and_false_values(monkeypatch: pytes
     monkeypatch.setenv("ALLOW_PROVIDER_CALLS_DURING_TRAINING", "no")
     monkeypatch.setenv("ENABLE_CONTINUOUS_INGESTION", "0")
     monkeypatch.setenv("ENABLE_AUTONOMOUS_RETRAINING", "false")
+    monkeypatch.setenv("PHASE6_CONSOLE_LOG_ENABLED", "off")
     monkeypatch.delenv("PHASE6_PROMOTION_LOCAL_BRANCH", raising=False)
 
     cfg = load_phase6_config()
@@ -99,6 +104,7 @@ def test_load_phase6_config_boolean_defaults_and_false_values(monkeypatch: pytes
     assert cfg.allow_provider_calls_during_training is False
     assert cfg.enable_continuous_ingestion is False
     assert cfg.enable_autonomous_retraining is False
+    assert cfg.console_log_enabled is False
     assert cfg.promotion_local_branch == "automation/phase6-promotions"
 
 

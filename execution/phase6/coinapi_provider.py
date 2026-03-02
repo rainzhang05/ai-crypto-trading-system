@@ -29,6 +29,8 @@ class CoinApiProvider:
         self._request_budget_per_minute = request_budget_per_minute
         self._requester = requester
         self._call_count = 0
+        self._window_minute_utc: datetime | None = None
+        self._window_call_count = 0
 
     @property
     def call_count(self) -> int:
@@ -36,12 +38,17 @@ class CoinApiProvider:
         return self._call_count
 
     def _guard_budget(self) -> None:
-        if self._call_count >= self._request_budget_per_minute:
+        now_minute = datetime.now(tz=timezone.utc).replace(second=0, microsecond=0)
+        if self._window_minute_utc != now_minute:
+            self._window_minute_utc = now_minute
+            self._window_call_count = 0
+        if self._window_call_count >= self._request_budget_per_minute:
             raise RuntimeError("CoinAPI request budget exceeded for current cycle")
 
     def _request_json(self, path: str, params: dict[str, Any]) -> Any:
         self._guard_budget()
         self._call_count += 1
+        self._window_call_count += 1
         if self._requester is not None:
             return self._requester(path, params)
 

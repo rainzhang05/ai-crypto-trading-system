@@ -66,6 +66,16 @@ def test_coinapi_budget_guard() -> None:
         provider.fetch_universe_metadata()
 
 
+def test_coinapi_budget_window_resets() -> None:
+    provider = CoinApiProvider(api_key="k", base_url="https://example.test", request_budget_per_minute=1, requester=lambda _p, _q: [])
+    provider.fetch_universe_metadata()
+    with pytest.raises(RuntimeError, match="request budget exceeded"):
+        provider.fetch_universe_metadata()
+
+    provider._window_minute_utc = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    provider.fetch_universe_metadata()
+
+
 def test_kraken_public_fetch_pairs() -> None:
     provider = KrakenPublicProvider(
         base_url="https://api.kraken.com",

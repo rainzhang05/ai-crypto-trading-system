@@ -19,8 +19,11 @@ class IncrementalSyncResult:
 
     ingestion_cycle_id: str
     symbols_synced: int
+    symbols_throttled: int
     bars_written: int
     trades_archived: int
+    ohlcv_api_calls: int
+    trade_api_calls: int
 
 
 
@@ -42,6 +45,36 @@ def _latest_trade_watermark(db: Phase6Database, symbol: str) -> tuple[datetime |
     return row["watermark_ts_utc"], row["watermark_cursor"]
 
 
+def _should_refresh_hourly_bars(last_ts: datetime | None, end_ts: datetime) -> bool:
+    if last_ts is None:
+        return True
+    last_hour = last_ts.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    end_hour = end_ts.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    return end_hour > last_hour
+
+
+def _recent_zero_trade_streak(db: Phase6Database, symbol: str, *, lookback_rows: int) -> int:
+    rows = db.fetch_all(
+        """
+        SELECT records_ingested
+        FROM ingestion_watermark_history
+        WHERE source_name = 'COINAPI'
+          AND symbol = :symbol
+          AND watermark_kind = 'INCREMENTAL_END'
+        ORDER BY watermark_ts_utc DESC
+        LIMIT :lookback_rows
+        """,
+        {"symbol": symbol, "lookback_rows": lookback_rows},
+    )
+    streak = 0
+    for row in rows:
+        ingested = int(row.get("records_ingested") or 0)
+        if ingested > 0:
+            break
+        streak += 1
+    return streak
+
+
 
 def run_incremental_sync(
     *,
@@ -51,6 +84,8 @@ def run_incremental_sync(
     asset_id_by_symbol: dict[str, int],
     local_cache_dir: Path,
     now_utc: datetime,
+    quiet_symbol_zero_streak: int = 3,
+    quiet_symbol_poll_interval_minutes: int = 5,
 ) -> IncrementalSyncResult:
     """Run one deterministic incremental ingestion cycle."""
     cycle_id = str(deterministic_uuid("phase6_ingestion_cycle", "incremental", now_utc.isoformat(), len(symbols)))
@@ -73,8 +108,11 @@ def run_incremental_sync(
     )
 
     symbols_synced = 0
+    symbols_throttled = 0
     bars_written = 0
     trades_archived = 0
+    ohlcv_api_calls = 0
+    trade_api_calls = 0
 
     for symbol in symbols:
         last_ts, cursor = _latest_trade_watermark(db, symbol)
@@ -82,8 +120,16 @@ def run_incremental_sync(
         end_ts = now_utc
         if end_ts <= start_ts:
             continue
+        zero_streak = _recent_zero_trade_streak(db, symbol, lookback_rows=max(quiet_symbol_zero_streak, 1))
+        min_poll_minutes = quiet_symbol_poll_interval_minutes if zero_streak >= quiet_symbol_zero_streak else 1
+        if last_ts is not None and (end_ts - last_ts) < timedelta(minutes=max(min_poll_minutes, 1)):
+            symbols_throttled += 1
+            continue
 
-        bars = provider.fetch_ohlcv(symbol, start_ts, end_ts, "1HRS")
+        bars = ()
+        if _should_refresh_hourly_bars(last_ts, end_ts):
+            bars = provider.fetch_ohlcv(symbol, start_ts, end_ts, "1HRS")
+            ohlcv_api_calls += 1
         for bar in bars:
             row_hash = stable_hash(("market_ohlcv_hourly", symbol, bar.hour_ts_utc.isoformat(), str(bar.close_price)))
             db.execute(
@@ -119,6 +165,7 @@ def run_incremental_sync(
             bars_written += 1
 
         trades, next_cursor = provider.fetch_trades(symbol, start_ts, end_ts, cursor)
+        trade_api_calls += 1
         chunks = archive_trade_ticks(
             base_dir=local_cache_dir,
             symbol=symbol,
@@ -160,6 +207,9 @@ def run_incremental_sync(
     return IncrementalSyncResult(
         ingestion_cycle_id=cycle_id,
         symbols_synced=symbols_synced,
+        symbols_throttled=symbols_throttled,
         bars_written=bars_written,
         trades_archived=trades_archived,
+        ohlcv_api_calls=ohlcv_api_calls,
+        trade_api_calls=trade_api_calls,
     )

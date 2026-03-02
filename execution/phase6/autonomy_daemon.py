@@ -66,6 +66,17 @@ class Phase6AutonomyDaemon:
             )
         )
 
+    def _console_log(self, message: str) -> None:
+        if not self._config.console_log_enabled:
+            return
+        print(message, flush=True)
+
+    def _provider_call_count(self) -> int | None:
+        value = getattr(self._provider, "call_count", None)
+        if isinstance(value, int):
+            return value
+        return None
+
     @staticmethod
     def _to_decimal(value: Any) -> Decimal:
         if value is None:
@@ -89,7 +100,12 @@ class Phase6AutonomyDaemon:
     def _safe_log_event(self, event_type: str, status: str, details: str) -> None:
         try:
             self._log_event(event_type, status, details)
-        except Exception:
+        except Exception as exc:
+            ts = self._clock.now_utc().astimezone(timezone.utc).isoformat()
+            self._console_log(
+                f"[phase6][{ts}] {event_type}:{status} {details} "
+                f"(event_log_persist_failed={type(exc).__name__}:{exc})"
+            )
             return
 
     def _log_event(self, event_type: str, status: str, details: str) -> None:
@@ -110,6 +126,9 @@ class Phase6AutonomyDaemon:
                 "details": details,
                 "row_hash": row_hash,
             },
+        )
+        self._console_log(
+            f"[phase6][{ts.astimezone(timezone.utc).isoformat()}] {event_type}:{status} {details}"
         )
 
     def _read_lock_payload(self) -> Mapping[str, Any] | None:
@@ -238,7 +257,14 @@ class Phase6AutonomyDaemon:
             self._log_event("BOOTSTRAP", "FAILED", f"error={type(exc).__name__}:{exc}")
             raise
         status = "COMPLETED" if result.completed else "FAILED"
-        self._log_event("BOOTSTRAP", status, f"symbols_completed={result.symbols_completed}")
+        self._log_event(
+            "BOOTSTRAP",
+            status,
+            (
+                f"cycle_id={result.ingestion_cycle_id},symbols_completed={result.symbols_completed},"
+                f"bars_written={result.bars_written},trades_archived={result.trades_archived}"
+            ),
+        )
         if not result.completed:
             raise RuntimeError("Bootstrap backfill did not complete for all universe symbols")
 
@@ -246,6 +272,7 @@ class Phase6AutonomyDaemon:
         """Run one incremental ingestion cycle."""
         now_utc = self._clock.now_utc()
         self._log_event("INGESTION", "STARTED", now_utc.isoformat())
+        calls_before = self._provider_call_count()
         try:
             result = run_incremental_sync(
                 db=self._db,
@@ -254,11 +281,25 @@ class Phase6AutonomyDaemon:
                 asset_id_by_symbol=self._asset_id_by_symbol,
                 local_cache_dir=self._config.local_data_cache_dir,
                 now_utc=now_utc,
+                quiet_symbol_zero_streak=self._config.adaptive_trade_poll_zero_streak,
+                quiet_symbol_poll_interval_minutes=self._config.adaptive_trade_poll_interval_minutes,
             )
         except Exception as exc:
             self._log_event("INGESTION", "FAILED", f"error={type(exc).__name__}:{exc}")
             raise
-        self._log_event("INGESTION", "COMPLETED", f"cycle_id={result.ingestion_cycle_id}")
+        calls_after = self._provider_call_count()
+        call_delta = None
+        if calls_before is not None and calls_after is not None:
+            call_delta = max(0, calls_after - calls_before)
+        detail = (
+            f"cycle_id={result.ingestion_cycle_id},symbols_synced={result.symbols_synced},"
+            f"symbols_throttled={result.symbols_throttled},bars_written={result.bars_written},"
+            f"trades_archived={result.trades_archived},ohlcv_api_calls={result.ohlcv_api_calls},"
+            f"trade_api_calls={result.trade_api_calls}"
+        )
+        if call_delta is not None:
+            detail = f"{detail},coinapi_calls={call_delta}"
+        self._log_event("INGESTION", "COMPLETED", detail)
 
     def run_gap_repair(self) -> None:
         """Run pending gap repairs."""
@@ -305,7 +346,11 @@ class Phase6AutonomyDaemon:
         self._log_event(
             "TRAINING",
             "COMPLETED" if training_result.approved else "REJECTED",
-            f"cycle_id={training_result.training_cycle_id},reason={training_result.reason_code},cycle_kind={cycle_kind}",
+            (
+                f"cycle_id={training_result.training_cycle_id},reason={training_result.reason_code},"
+                f"cycle_kind={cycle_kind},dataset_snapshot_id={training_result.dataset_snapshot_id},"
+                f"candidate_hash={training_result.candidate_model_set_hash}"
+            ),
         )
 
     def _scheduled_training_already_ran_today(self, now_utc: datetime) -> bool:
@@ -470,6 +515,13 @@ class Phase6AutonomyDaemon:
             thresholds=thresholds,
         )
         if not triggered:
+            self._console_log(
+                (
+                    f"[phase6][{now_utc.isoformat()}] DRIFT_RETRAIN:NOT_TRIGGERED "
+                    f"accuracy_drop_pp={observation.accuracy_drop_pp},ece_delta={observation.ece_delta},"
+                    f"psi={observation.psi_value}"
+                )
+            )
             return False
         if self._drift_retrain_recently_ran(now_utc):
             self._log_event(
@@ -547,11 +599,25 @@ class Phase6AutonomyDaemon:
         )
 
     def _run_once_cycle(self) -> None:
+        if not self.bootstrap_complete():
+            end_ts = self._clock.now_utc().astimezone(timezone.utc)
+            start_ts = end_ts - timedelta(days=self._config.bootstrap_lookback_days)
+            self._log_event(
+                "BOOTSTRAP_GATE",
+                "PENDING",
+                f"bootstrap_complete=false,start_ts={start_ts.isoformat()},end_ts={end_ts.isoformat()}",
+            )
+            self.run_bootstrap_backfill(start_ts_utc=start_ts, end_ts_utc=end_ts)
+            return
+
         if self._config.enable_continuous_ingestion:
             self.run_incremental_sync()
+        else:
+            self._log_event("INGESTION", "SKIPPED", "enable_continuous_ingestion=false")
         self.run_gap_repair()
 
-        if not self.bootstrap_complete() or not self._config.enable_autonomous_retraining:
+        if not self._config.enable_autonomous_retraining:
+            self._log_event("TRAINING_GATE", "SKIPPED", "enable_autonomous_retraining=false")
             return
 
         now_utc = self._clock.now_utc().astimezone(timezone.utc)

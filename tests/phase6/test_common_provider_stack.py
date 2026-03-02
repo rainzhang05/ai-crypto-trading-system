@@ -30,6 +30,8 @@ def test_common_helpers_cover_all_paths(tmp_path: Path) -> None:
 
 
 class _FakeCoinApi:
+    call_count = 7
+
     def fetch_ohlcv(self, symbol, start_ts_utc, end_ts_utc, granularity):  # type: ignore[no-untyped-def]
         return (
             OhlcvBar(
@@ -93,3 +95,12 @@ def test_provider_stack_delegates() -> None:
     assert cursor is None
     assert universe[0].symbol == "BTC"
     assert kraken[0].kraken_pair == "XBTUSD"
+    assert stack.call_count == 7
+
+
+def test_provider_stack_call_count_none_branch() -> None:
+    class _NoCountCoinApi(_FakeCoinApi):
+        call_count = "x"
+
+    stack = Phase6ProviderStack(coinapi=_NoCountCoinApi(), kraken_public=_FakeKraken())
+    assert stack.call_count is None

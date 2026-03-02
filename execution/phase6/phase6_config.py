@@ -24,9 +24,13 @@ class Phase6Config:
     allow_provider_calls_during_training: bool
     enable_continuous_ingestion: bool
     enable_autonomous_retraining: bool
+    console_log_enabled: bool
     ingestion_loop_seconds: int
     retrain_hour_utc: int
+    bootstrap_lookback_days: int
     api_budget_per_minute: int
+    adaptive_trade_poll_zero_streak: int
+    adaptive_trade_poll_interval_minutes: int
     drift_accuracy_drop_pp: float
     drift_ece_delta: float
     drift_psi_threshold: float
@@ -118,9 +122,13 @@ def load_phase6_config() -> Phase6Config:
         allow_provider_calls_during_training=_read_bool("ALLOW_PROVIDER_CALLS_DURING_TRAINING", False),
         enable_continuous_ingestion=_read_bool("ENABLE_CONTINUOUS_INGESTION", True),
         enable_autonomous_retraining=_read_bool("ENABLE_AUTONOMOUS_RETRAINING", True),
+        console_log_enabled=_read_bool("PHASE6_CONSOLE_LOG_ENABLED", True),
         ingestion_loop_seconds=_read_int("PHASE6_INGESTION_LOOP_SECONDS", 60),
         retrain_hour_utc=_read_int("PHASE6_RETRAIN_HOUR_UTC", 0),
+        bootstrap_lookback_days=_read_int("PHASE6_BOOTSTRAP_LOOKBACK_DAYS", 7000),
         api_budget_per_minute=_read_int("PHASE6_API_BUDGET_PER_MINUTE", 120),
+        adaptive_trade_poll_zero_streak=_read_int("PHASE6_ADAPTIVE_TRADE_POLL_ZERO_STREAK", 3),
+        adaptive_trade_poll_interval_minutes=_read_int("PHASE6_ADAPTIVE_TRADE_POLL_INTERVAL_MINUTES", 5),
         drift_accuracy_drop_pp=_read_float("PHASE6_DRIFT_ACCURACY_DROP_PP", 5.0),
         drift_ece_delta=_read_float("PHASE6_DRIFT_ECE_DELTA", 0.03),
         drift_psi_threshold=_read_float("PHASE6_DRIFT_PSI_THRESHOLD", 0.25),

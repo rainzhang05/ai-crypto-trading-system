@@ -17,6 +17,14 @@ class Phase6ProviderStack(HistoricalProvider):
         self._coinapi = coinapi
         self._kraken = kraken_public
 
+    @property
+    def call_count(self) -> int | None:
+        """Expose CoinAPI call counter for daemon progress/budget logging."""
+        value = getattr(self._coinapi, "call_count", None)
+        if isinstance(value, int):
+            return value
+        return None
+
     def fetch_ohlcv(self, symbol: str, start_ts_utc: datetime, end_ts_utc: datetime, granularity: str) -> Sequence[OhlcvBar]:
         return self._coinapi.fetch_ohlcv(symbol, start_ts_utc, end_ts_utc, granularity)
 

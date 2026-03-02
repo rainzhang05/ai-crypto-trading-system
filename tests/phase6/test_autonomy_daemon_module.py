@@ -37,9 +37,13 @@ def _config(local_cache_dir: Path, **overrides) -> Phase6Config:  # type: ignore
         allow_provider_calls_during_training=False,
         enable_continuous_ingestion=True,
         enable_autonomous_retraining=True,
+        console_log_enabled=False,
         ingestion_loop_seconds=1,
         retrain_hour_utc=0,
+        bootstrap_lookback_days=3650,
         api_budget_per_minute=10,
+        adaptive_trade_poll_zero_streak=3,
+        adaptive_trade_poll_interval_minutes=5,
         drift_accuracy_drop_pp=5.0,
         drift_ece_delta=0.03,
         drift_psi_threshold=0.25,
@@ -166,7 +170,11 @@ def test_run_training_invalid_config_rejected(tmp_path: Path) -> None:
 
 def test_maybe_trigger_drift_training_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     d = _daemon(FakeDB(), local_cache_dir=tmp_path)
-    monkeypatch.setattr(d, "_compute_drift_observation", lambda _now: SimpleNamespace())
+    monkeypatch.setattr(
+        d,
+        "_compute_drift_observation",
+        lambda _now: SimpleNamespace(accuracy_drop_pp=Decimal("0"), ece_delta=Decimal("0"), psi_value=Decimal("0")),
+    )
     monkeypatch.setattr("execution.phase6.autonomy_daemon.persist_drift_event", lambda *_args, **_kwargs: False)
     assert d.maybe_trigger_drift_training() is False
 
@@ -360,9 +368,16 @@ def test_lock_retry_exhaustion_and_release_missing_file(tmp_path: Path, monkeypa
 def test_run_operation_success_branches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db = FakeDB()
     d = _daemon(db, local_cache_dir=tmp_path)
+    d._provider = SimpleNamespace(call_count=5)  # type: ignore[assignment]
     monkeypatch.setattr(
         "execution.phase6.autonomy_daemon.run_bootstrap_backfill",
-        lambda **_kwargs: SimpleNamespace(completed=False, symbols_completed=1),
+        lambda **_kwargs: SimpleNamespace(
+            ingestion_cycle_id="boot-1",
+            completed=False,
+            symbols_completed=1,
+            bars_written=10,
+            trades_archived=20,
+        ),
     )
     with pytest.raises(RuntimeError, match="did not complete"):
         d.run_bootstrap_backfill(
@@ -372,16 +387,31 @@ def test_run_operation_success_branches(tmp_path: Path, monkeypatch: pytest.Monk
 
     monkeypatch.setattr(
         "execution.phase6.autonomy_daemon.run_bootstrap_backfill",
-        lambda **_kwargs: SimpleNamespace(completed=True, symbols_completed=2),
+        lambda **_kwargs: SimpleNamespace(
+            ingestion_cycle_id="boot-2",
+            completed=True,
+            symbols_completed=2,
+            bars_written=11,
+            trades_archived=22,
+        ),
     )
     d.run_bootstrap_backfill(
         start_ts_utc=datetime(2025, 1, 1, tzinfo=timezone.utc),
         end_ts_utc=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
-    monkeypatch.setattr(
-        "execution.phase6.autonomy_daemon.run_incremental_sync",
-        lambda **_kwargs: SimpleNamespace(ingestion_cycle_id="ic-success"),
-    )
+    def _sync_success(**_kwargs):  # type: ignore[no-untyped-def]
+        d._provider.call_count = 8  # type: ignore[attr-defined]
+        return SimpleNamespace(
+            ingestion_cycle_id="ic-success",
+            symbols_synced=2,
+            symbols_throttled=1,
+            bars_written=3,
+            trades_archived=4,
+            ohlcv_api_calls=2,
+            trade_api_calls=2,
+        )
+
+    monkeypatch.setattr("execution.phase6.autonomy_daemon.run_incremental_sync", _sync_success)
     d.run_incremental_sync()
     monkeypatch.setattr(
         "execution.phase6.autonomy_daemon.repair_pending_gaps",
@@ -390,7 +420,13 @@ def test_run_operation_success_branches(tmp_path: Path, monkeypatch: pytest.Monk
     d.run_gap_repair()
     monkeypatch.setattr(
         "execution.phase6.autonomy_daemon.run_training_cycle",
-        lambda **_kwargs: SimpleNamespace(approved=True, training_cycle_id="tc", reason_code="APPROVED"),
+        lambda **_kwargs: SimpleNamespace(
+            approved=True,
+            training_cycle_id="tc",
+            reason_code="APPROVED",
+            dataset_snapshot_id="ds1",
+            candidate_model_set_hash="cand",
+        ),
     )
     d.run_training(cycle_kind="MANUAL")
 
@@ -456,9 +492,10 @@ def test_run_once_cycle_branch_paths(tmp_path: Path, monkeypatch: pytest.MonkeyP
     d_no_bootstrap = _daemon(FakeDB(), local_cache_dir=tmp_path / "noboot", cfg=cfg, now_hour=1)
     calls_no_bootstrap: list[str] = []
     monkeypatch.setattr(d_no_bootstrap, "run_gap_repair", lambda: calls_no_bootstrap.append("repair"))
+    monkeypatch.setattr(d_no_bootstrap, "run_bootstrap_backfill", lambda **_kwargs: calls_no_bootstrap.append("bootstrap"))
     monkeypatch.setattr(d_no_bootstrap, "bootstrap_complete", lambda: False)
     d_no_bootstrap._run_once_cycle()
-    assert calls_no_bootstrap == ["repair"]
+    assert calls_no_bootstrap == ["bootstrap"]
 
     cfg_disabled = _config(tmp_path / "disabled", enable_autonomous_retraining=False)
     d_disabled = _daemon(FakeDB(), local_cache_dir=tmp_path / "disabled", cfg=cfg_disabled, now_hour=1)
@@ -468,3 +505,44 @@ def test_run_once_cycle_branch_paths(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(d_disabled, "bootstrap_complete", lambda: True)
     d_disabled._run_once_cycle()
     assert calls_disabled == ["sync", "repair"]
+
+
+def test_console_and_provider_call_count_paths(tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = _config(tmp_path / "console", console_log_enabled=True)
+    d = _daemon(FakeDB(), local_cache_dir=tmp_path / "console", cfg=cfg)
+    d._console_log("hello")
+    assert "hello" in capsys.readouterr().out
+
+    provider = SimpleNamespace(call_count=17)
+    d_count = Phase6AutonomyDaemon(
+        db=FakeDB(),
+        provider=provider,
+        config=cfg,
+        symbols=("BTC",),
+        asset_id_by_symbol={"BTC": 1},
+        clock=_FixedClock(datetime(2026, 1, 1, tzinfo=timezone.utc)),
+    )
+    assert d_count._provider_call_count() == 17
+    provider.call_count = "bad"
+    assert d_count._provider_call_count() is None
+
+    monkeypatch.setattr(d_count, "_log_event", lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("x")))
+    d_count._safe_log_event("INGESTION", "FAILED", "detail")
+    assert "event_log_persist_failed" in capsys.readouterr().out
+
+
+def test_run_incremental_sync_without_provider_call_counter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    d = _daemon(FakeDB(), local_cache_dir=tmp_path)
+    monkeypatch.setattr(
+        "execution.phase6.autonomy_daemon.run_incremental_sync",
+        lambda **_kwargs: SimpleNamespace(
+            ingestion_cycle_id="ic-none",
+            symbols_synced=1,
+            symbols_throttled=0,
+            bars_written=1,
+            trades_archived=2,
+            ohlcv_api_calls=1,
+            trade_api_calls=1,
+        ),
+    )
+    d.run_incremental_sync()

@@ -8,7 +8,12 @@ import pytest
 
 from execution.phase6.bootstrap_backfill import _persist_ohlcv_rows, run_bootstrap_backfill
 from execution.phase6.gap_repair import detect_gap_events, repair_pending_gaps
-from execution.phase6.incremental_sync import _latest_trade_watermark, run_incremental_sync
+from execution.phase6.incremental_sync import (
+    _latest_trade_watermark,
+    _recent_zero_trade_streak,
+    _should_refresh_hourly_bars,
+    run_incremental_sync,
+)
 from execution.phase6.provider_contract import OhlcvBar, TradeTick
 from execution.phase6.trade_archive import RawTradeChunk
 from tests.phase6.utils import FakeDB
@@ -17,8 +22,10 @@ from tests.phase6.utils import FakeDB
 class _Provider:
     def __init__(self) -> None:
         self.trade_calls = 0
+        self.ohlcv_calls = 0
 
     def fetch_ohlcv(self, symbol, start_ts_utc, end_ts_utc, granularity):  # type: ignore[no-untyped-def]
+        self.ohlcv_calls += 1
         return (
             OhlcvBar(
                 symbol=symbol,
@@ -157,6 +164,7 @@ def test_incremental_sync_success_and_skip_branch(monkeypatch: pytest.MonkeyPatc
     # watermark at now_utc causes skip path for this symbol
     assert result.symbols_synced == 0
     assert result.bars_written == 0
+    assert result.symbols_throttled == 0
 
     db2 = FakeDB()
     provider2 = _Provider()
@@ -171,6 +179,83 @@ def test_incremental_sync_success_and_skip_branch(monkeypatch: pytest.MonkeyPatc
     assert result2.symbols_synced == 1
     assert result2.bars_written >= 1
     assert result2.trades_archived >= 1
+    assert result2.trade_api_calls == 1
+    assert result2.ohlcv_api_calls == 1
+
+
+def test_incremental_sync_adaptive_poll_and_hourly_refresh(tmp_path: Path) -> None:
+    db = FakeDB()
+    now_utc = datetime(2026, 1, 1, 0, 2, tzinfo=timezone.utc)
+    last_ts = datetime(2026, 1, 1, 0, 1, tzinfo=timezone.utc)
+    db.set_one("FROM ingestion_watermark_history", {"watermark_ts_utc": last_ts, "watermark_cursor": None})
+    db.set_all(
+        "AND watermark_kind = 'INCREMENTAL_END'",
+        [
+            {"records_ingested": 0},
+            {"records_ingested": 0},
+            {"records_ingested": 0},
+        ],
+    )
+
+    provider = _Provider()
+    result = run_incremental_sync(
+        db=db,
+        provider=provider,
+        symbols=("BTC",),
+        asset_id_by_symbol={"BTC": 1},
+        local_cache_dir=tmp_path,
+        now_utc=now_utc,
+        quiet_symbol_zero_streak=3,
+        quiet_symbol_poll_interval_minutes=5,
+    )
+    assert result.symbols_synced == 0
+    assert result.symbols_throttled == 1
+    assert provider.trade_calls == 0
+    assert provider.ohlcv_calls == 0
+
+
+def test_incremental_sync_skips_ohlcv_inside_same_hour(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    db = FakeDB()
+    now_utc = datetime(2026, 1, 1, 0, 5, tzinfo=timezone.utc)
+    last_ts = datetime(2026, 1, 1, 0, 4, tzinfo=timezone.utc)
+    db.set_one("FROM ingestion_watermark_history", {"watermark_ts_utc": last_ts, "watermark_cursor": None})
+    db.set_all("AND watermark_kind = 'INCREMENTAL_END'", [{"records_ingested": 10}])
+    monkeypatch.setattr("execution.phase6.incremental_sync.archive_trade_ticks", lambda **_kwargs: ())
+    monkeypatch.setattr("execution.phase6.incremental_sync.persist_trade_chunk_manifest", lambda *_args, **_kwargs: None)
+
+    provider = _Provider()
+    result = run_incremental_sync(
+        db=db,
+        provider=provider,
+        symbols=("BTC",),
+        asset_id_by_symbol={"BTC": 1},
+        local_cache_dir=tmp_path,
+        now_utc=now_utc,
+    )
+    assert result.symbols_synced == 1
+    assert result.ohlcv_api_calls == 0
+    assert provider.ohlcv_calls == 0
+    assert result.trade_api_calls == 1
+
+
+def test_incremental_sync_helper_branches() -> None:
+    ts_a = datetime(2026, 1, 1, 0, 30, tzinfo=timezone.utc)
+    ts_b = datetime(2026, 1, 1, 1, 0, tzinfo=timezone.utc)
+    assert _should_refresh_hourly_bars(None, ts_b) is True
+    assert _should_refresh_hourly_bars(ts_a, ts_a) is False
+    assert _should_refresh_hourly_bars(ts_a, ts_b) is True
+
+    db = FakeDB()
+    db.set_all(
+        "AND watermark_kind = 'INCREMENTAL_END'",
+        [
+            {"records_ingested": 0},
+            {"records_ingested": None},
+            {"records_ingested": 5},
+            {"records_ingested": 0},
+        ],
+    )
+    assert _recent_zero_trade_streak(db, "BTC", lookback_rows=5) == 2
 
 
 def test_detect_gap_events_and_repair_paths(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
