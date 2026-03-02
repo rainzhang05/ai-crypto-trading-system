@@ -35,6 +35,10 @@ The following must be configurable through interface controls:
 3. `max_cluster_exposure` with unit mode:
    - `PERCENT_OF_PV` (default `8%`).
    - `ABSOLUTE_AMOUNT` (default profile amount).
+4. `per_quote_currency_limits`:
+   - quote-currency keyed caps for `CAD`, `USD`, and `USDC`
+   - each cap supports percent-of-PV or absolute-amount policy semantics
+   - if any configured quote-currency cap is exceeded, new entry/order admission must be blocked
 
 Runtime must enforce the active profile values, not static constants.
 
@@ -168,12 +172,16 @@ The user-facing control plane must preserve risk enforcement guarantees:
 
 - frontend settings changes cannot bypass server-side risk validation
 - exposure/drawdown limits remain authoritative in runtime regardless of UI state
+- quote-currency caps (`CAD`, `USD`, `USDC`) remain authoritative in runtime regardless of UI state
 - live trading enablement must remain blocked until Kraken credential validation succeeds
 - onboarding must enforce no-withdrawal trading key policy
+- first-time live authorization must require successful paper-trial completion and explicit confirmation
 
 Detailed UX/control-plane requirements are defined in:
 
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
+- `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
+- `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
 
 ---
 

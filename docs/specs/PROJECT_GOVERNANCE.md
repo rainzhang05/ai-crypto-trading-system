@@ -9,6 +9,9 @@ Authoritative strategy behavior is defined in:
 
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
+- `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
+- `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
+- `docs/specs/PRODUCTION_OPERATIONS_AND_RELIABILITY_SPEC.md`
 
 ---
 
@@ -124,6 +127,33 @@ Kraken onboarding governance requirements:
 - Withdrawal capability must be explicitly disallowed for trading keys.
 - Secrets must be handled through secure storage pathways and never logged in plaintext.
 - Live enablement requires explicit user confirmation after connectivity validation.
+
+---
+
+# 7B. LOCAL-FIRST RUNTIME AND PRIVACY GOVERNANCE
+
+Core trading operation must be local-first:
+
+- users must be able to run setup and runtime control fully on local machines
+- mandatory cloud dependency is not allowed for core trading operation
+- cloud services, when used, must remain optional extensions (backup/sync/update channels)
+
+Local security/privacy requirements:
+
+- Kraken credentials must be stored through approved secure OS credential stores (macOS Keychain for macOS build target)
+- plaintext API secrets are prohibited in logs, config files, crash reports, and telemetry payloads
+- local audit logs must preserve deterministic traceability while avoiding secret leakage
+
+---
+
+# 7C. MODEL BUNDLE GOVERNANCE
+
+Model and inference artifacts are governed release assets:
+
+- inference-ready artifacts must be distributed as signed release bundles
+- users must not start from an empty/untrained model state on first install
+- bundle compatibility (app/backend/model) must be versioned and enforced
+- update workflow must support verification, atomic install, and rollback on failure
 
 ---
 

@@ -1,8 +1,8 @@
 # AI CRYPTO TRADING SYSTEM
 ## OPERATOR CONTROL PLANE & KRAKEN ONBOARDING SPECIFICATION
-Version: 1.0
+Version: 1.1
 Status: AUTHORITATIVE (FUTURE DELIVERY REQUIREMENTS)
-Scope: User Frontend, Operator UX, and Exchange Connection Onboarding
+Scope: macOS Desktop Frontend, Operator UX, and Exchange Connection Onboarding
 
 ---
 
@@ -27,16 +27,24 @@ This specification is binding with:
 - `docs/specs/PROJECT_ROADMAP.md`
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
 - `docs/specs/RISK_RULES.md`
+- `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
+- `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
 
 ---
 
 # 2. Operator Frontend (Required Surfaces)
+
+Primary client target:
+
+- macOS desktop app (SwiftUI) as first shipping control surface.
 
 The frontend must provide:
 
 1. Settings Control
 - Governed profile selection/editing for strategy/risk settings.
 - Visible bounds and validation feedback for configurable values.
+- Global exposure cap policy editing.
+- Per-quote-currency cap editing for `CAD`, `USD`, and `USDC`.
 
 2. Runtime Status
 - Mode (`BACKTEST` / `PAPER` / `LIVE`)
@@ -57,6 +65,35 @@ The frontend must provide:
 5. Audit Navigation
 - Links to replay/validation evidence for displayed actions
 - Traceability from UI row to deterministic runtime artifacts
+
+6. Runtime Controls
+- Explicit `Start` and `Stop` controls for local runtime daemon.
+- Pre-live risk warning modal with explicit user confirmation.
+- Paper-first gate status and live-eligibility status.
+
+---
+
+# 2A. Local Control API Contract (Consumed by Frontend)
+
+Required local daemon endpoints:
+
+- `POST /onboarding/kraken/validate`
+- `POST /onboarding/kraken/connect`
+- `GET /onboarding/kraken/status`
+- `POST /runtime/start`
+- `POST /runtime/stop`
+- `GET /runtime/status`
+- `GET /portfolio/summary`
+- `GET /portfolio/assets`
+- `GET /decisions/timeline`
+- `GET /predictions/latest`
+- `POST /risk/profile/update`
+
+Control API constraints:
+
+- loopback-only network binding by default
+- authenticated local control session required
+- endpoints must preserve deterministic audit event emission
 
 ---
 
@@ -92,7 +129,7 @@ The onboarding flow must be simple and guided:
 3. Secure Credential Capture
 - One-time key/secret submission.
 - Secrets are never re-displayed in plaintext.
-- Secrets are stored in approved secure secret storage paths only.
+- Secrets are stored in approved secure secret storage paths only (macOS Keychain for macOS target).
 
 4. Connectivity Verification
 - Verify account reachability and required endpoints.
@@ -101,6 +138,7 @@ The onboarding flow must be simple and guided:
 5. Live Enable Confirmation
 - Require explicit final confirmation to grant live order authority.
 - Present safety summary before confirmation.
+- Require successful paper-trial completion before first live authorization.
 
 ---
 
@@ -109,7 +147,11 @@ The onboarding flow must be simple and guided:
 Roadmap alignment:
 
 - Phase 8A: Kraken onboarding + credential gateway
-- Phase 9A: Operator control-plane frontend
+- Phase 8B: local runtime service + control API
+- Phase 9A: operator control-plane capabilities
+- Phase 9B: macOS packaging and first-run UX
+- Phase 9C: budget and limit extensions
+- Phase 10A: model-bundle updater integration
 
 Phase completion for these slices requires:
 
@@ -129,6 +171,7 @@ Implementation is compliant only when:
 3. Users can connect Kraken accounts through a guided, low-friction, policy-compliant flow.
 4. Credential handling remains secure and non-plaintext in logs/artifacts.
 5. Live enablement requires explicit user confirmation after successful validation checks.
+6. First-time live enablement is blocked until paper-trial completion criteria are satisfied.
 
 ---
 

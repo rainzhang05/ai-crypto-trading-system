@@ -16,6 +16,8 @@ Repository executable-artifact coverage closure is mandatory for phase completio
 | 4 | Deterministic order lifecycle (signal → order → fill → lot → trade) | Unit + DB integration + validation SQL | Phase 4 validation checks all return zero |
 | 5 | Deterministic portfolio/ledger engine (cash ledger + hourly state writers + replay parity extension) | Unit + DB integration + validation SQL | Phase 5 validation checks all return zero |
 | Cross-Phase Coverage Policy | Repository executable-artifact coverage closure (Python + non-Python executables) | Coverage manifest + integration execution + contract tests | Every phase implementation is incomplete until coverage closure is achieved for executable artifacts introduced/modified by that phase |
+| Future Productization (8A/8B/9A/9B/9C/10A) | Local-first runtime + macOS control plane + Kraken onboarding + model bundle updates | Contract tests + integration tests + security/privacy checks + deterministic replay checks | Local-first control, onboarding gates, per-currency limits, and model update safety gates all pass before phase closure |
+| Production Ops & Reliability (10B/10C/10D/10E/10F/10G) | Compatibility governance + DR + incident response + audit export + retention + trust rotation | Contract tests + drill validations + release-gate checks | Production operations controls are validated and auditable before full production declaration |
 
 ## Test Categories
 
@@ -56,6 +58,20 @@ Repository executable-artifact coverage closure is mandatory for phase completio
   - `docker-compose.yml` parse/contract checks.
   - `Makefile` target contract checks.
 
+- Productization planning scenarios (future authoritative gates):
+  - First-run onboarding success path with valid Kraken key and required scopes.
+  - Onboarding rejection for withdrawal-enabled keys.
+  - Paper-first enforcement blocks live start until paper trial completion.
+  - Risk warning + explicit confirmation flow before first live enablement.
+  - Global budget cap enforcement under `PERCENT_OF_PV` and `ABSOLUTE_AMOUNT`.
+  - Per-currency budget cap enforcement for `CAD`, `USD`, `USDC`.
+  - Local runtime restart survival and deterministic state continuity.
+  - Model update verifies signature/checksum and rejects tampered bundles.
+  - Rollback to prior model bundle on failed update/compatibility check.
+  - No secret leakage in logs/telemetry/crash outputs.
+  - Full offline operation (except optional update check) remains functional.
+  - Replay/audit parity remains intact after model-bundle update.
+
 ## Pass/Fail Gates
 
 - Gate A: Clean-room DB bootstrap completes with no SQL errors.
@@ -72,6 +88,10 @@ Repository executable-artifact coverage closure is mandatory for phase completio
 - Gate K: SQL artifacts are fully covered by execution/equivalence policy with explicit excluded-artifact policy.
 - Gate L: Repository executable-artifact coverage closure policy is enforced for phase completion evidence.
 - Gate M: Command exits non-zero on any failure (abort discipline enforced by `set -euo pipefail`).
+- Gate N: Local-first runtime control is validated without mandatory cloud dependency for core operation.
+- Gate O: First live authorization is blocked until paper-trial completion and explicit risk confirmation.
+- Gate P: Global and per-currency (`CAD`, `USD`, `USDC`) exposure caps are enforced with deterministic reason-code evidence.
+- Gate Q: Model bundle updates enforce signature/checksum/compatibility checks with rollback-on-failure.
 
 ## Commands
 

@@ -24,6 +24,8 @@ This specification is binding with:
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/SCHEMA_DDL_MASTER.md`
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
+- `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
+- `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
 
 ---
 
@@ -94,6 +96,10 @@ All numeric controls below must be user-configurable in UI with defaults.
 - `max_cluster_exposure` with mode:
   - `PERCENT_OF_PV` (default: `8%`)
   - `ABSOLUTE_AMOUNT` (default amount from profile)
+- `per_quote_currency_limits`:
+  - keyed by quote currency (`CAD`, `USD`, `USDC`)
+  - each value supports `PERCENT_OF_PV` or `ABSOLUTE_AMOUNT` policy encoding
+  - violation in any configured quote-currency limit must block new entry/order emission
 
 ## 4.2 Strategy Sensitivity Controls
 
@@ -140,6 +146,28 @@ The system must offer a simple guided flow for users to connect their Kraken acc
 3. validate connectivity and permissions before runtime enablement
 4. default onboarding to paper mode before optional live enablement
 5. require explicit confirmation before enabling live order authority
+
+## 4.6 Local Control API Contract (Desktop Control Plane)
+
+The local runtime service must expose a governed control API consumed by the macOS app:
+
+- `POST /onboarding/kraken/validate`
+- `POST /onboarding/kraken/connect`
+- `GET /onboarding/kraken/status`
+- `POST /runtime/start`
+- `POST /runtime/stop`
+- `GET /runtime/status`
+- `GET /portfolio/summary`
+- `GET /portfolio/assets`
+- `GET /decisions/timeline`
+- `GET /predictions/latest`
+- `POST /risk/profile/update`
+
+Control API constraints:
+
+- loopback-only binding by default
+- authenticated local session/control token required
+- no endpoint may bypass runtime risk validation or append-only audit pathways
 
 ---
 

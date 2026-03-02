@@ -163,6 +163,9 @@ Primary governance documents:
 - `docs/specs/RISK_RULES.md`
 - `docs/specs/TRADING_LOGIC_EXECUTION_SPEC.md`
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
+- `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
+- `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
+- `docs/specs/PRODUCTION_OPERATIONS_AND_RELIABILITY_SPEC.md`
 - `docs/specs/SCHEMA_DDL_MASTER.md`
 - `docs/specs/ARCHITECT_DECISIONS.md`
 
@@ -185,6 +188,22 @@ Kraken onboarding requirements:
 - explicit no-withdrawal key policy
 - secure credential handling and connectivity validation
 - paper-first default with explicit live enable confirmation
+
+---
+
+# 13. Planned Local-First Runtime and Model Bundle Lifecycle
+
+Productization direction is local-first:
+
+- end-user setup and operation must work fully on local machines
+- mandatory cloud dependencies are prohibited for core runtime operation
+- local runtime service + local control API are first-class architecture components
+
+Model delivery/update direction:
+
+- trained inference-ready artifacts are shipped as signed release bundles
+- users should not initialize from empty/untrained models on first install
+- model updates require compatibility checks, atomic swap, and rollback on failure
 
 ---
 

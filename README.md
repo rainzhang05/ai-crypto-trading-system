@@ -116,6 +116,9 @@ Primary implementation references:
 - `docs/specs/PROJECT_ROADMAP.md`
 - `docs/specs/ARCHITECT_DECISIONS.md`
 - `docs/specs/OPERATOR_CONTROL_PLANE_AND_KRAKEN_ONBOARDING_SPEC.md`
+- `docs/specs/LOCAL_FIRST_RUNTIME_AND_PRIVACY_SPEC.md`
+- `docs/specs/MODEL_BUNDLE_DISTRIBUTION_AND_UPDATE_SPEC.md`
+- `docs/specs/PRODUCTION_OPERATIONS_AND_RELIABILITY_SPEC.md`
 
 Developers should implement strategy/risk behavior directly from these specs.
 
@@ -123,16 +126,18 @@ Developers should implement strategy/risk behavior directly from these specs.
 
 ## 8. Planned User Frontend (Control Plane)
 
-Planned product surface includes a user-facing frontend for operating the bot safely.
+Planned first shipping product surface is a **local-first macOS desktop app** (SwiftUI) for operating the bot safely on user-owned hardware.
 
 Required frontend capabilities:
 
 - modify governed strategy/risk profile settings (within policy bounds)
+- configure global exposure caps and per-quote-currency caps (`CAD`, `USD`, `USDC`)
 - view current runtime status (mode, risk state, kill-switch status, health)
 - inspect upcoming/active decision context and model predictions
 - view current holdings, lots, and realized/unrealized PnL
 - view per-asset charts (price, position, and decision overlays)
 - view deterministic decision/action history with reason codes
+- provide explicit risk warning + user confirmation before first live start
 
 The frontend is planned as an operator control plane, not a risk bypass path.
 All writes remain governed, versioned, and replay-auditable.
@@ -146,15 +151,33 @@ Planned onboarding includes the simplest safe path for users to connect their ow
 1. Guided connection wizard (paper first, then optional live enablement).
 2. Step-by-step Kraken API key creation instructions with required permissions only.
 3. Enforced no-withdrawal key policy and explicit scope validation checks.
-4. One-time secure secret capture (never echoed in logs/UI after submission).
+4. One-time secure secret capture stored in macOS Keychain (never echoed in logs/UI after submission).
 5. Connection health check + balance/permissions verification before enabling runtime.
-6. Explicit final confirmation gate before live order authorization.
+6. Mandatory paper-trial completion gate before first live authorization.
+7. Explicit final confirmation gate before live order authorization.
 
 This onboarding flow will be treated as a first-class roadmap deliverable, not optional UX polish.
 
 ---
 
-## 10. LLM Support Roadmap
+## 10. Local-First Runtime and Model Delivery
+
+Product direction is local-first:
+
+- core trading runtime must be fully operable on user machines without mandatory cloud dependency
+- optional cloud services may be added later for backup/sync/update channels
+- trained inference-ready model artifacts and metadata are distributed as signed GitHub Release bundles
+- users receive one-click model updates with compatibility checks and rollback protection
+
+Bundled distribution policy:
+
+- users should not start from empty, untrained models on first install
+- release bundles include inference artifacts and lineage metadata
+- full raw training datasets are not required in default user bundles
+
+---
+
+## 11. LLM Support Roadmap
 
 Current order authority is quantitative-model driven.
 
