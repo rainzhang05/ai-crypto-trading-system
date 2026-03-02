@@ -298,18 +298,6 @@ No risk bypass allowed.
 
 ---
 
-## PHASE 11 — OPTIONAL LLM ASSIST LAYER (NON-AUTHORITATIVE)
-
-Implement (optional, governance-gated):
-
-- LLM advisory/context layer for anomaly explanation and strategy assistance
-- Strict non-authoritative integration in initial release
-- Full audit logging of LLM inputs/outputs when enabled
-
-Order-authoritative LLM behavior requires separate explicit governance approval.
-
----
-
 ## PHASE 9 — MONITORING & OBSERVABILITY
 
 Implement:
@@ -338,6 +326,18 @@ Perform:
 
 Only after this phase:
 Live capital scaling permitted.
+
+---
+
+## PHASE 11 — OPTIONAL LLM ASSIST LAYER (NON-AUTHORITATIVE)
+
+Implement (optional, governance-gated):
+
+- LLM advisory/context layer for anomaly explanation and strategy assistance
+- Strict non-authoritative integration in initial release
+- Full audit logging of LLM inputs/outputs when enabled
+
+Order-authoritative LLM behavior requires separate explicit governance approval.
 
 ---
 
