@@ -4,12 +4,14 @@ This repository uses three workflows:
 
 1. `ci.yml`
 - Triggers on pull requests, branch pushes, manual runs, and nightly schedule.
+- Runs a fast workflow/shell hygiene gate (`actionlint`, `bash -n`, `shellcheck`, `docker compose config`).
 - Runs Python preflight checks (`compileall`, `pytest`) and then the authoritative clean-room gate via `scripts/test_all.sh`.
 - Uploads `docs/test_logs` artifacts for audit evidence.
 
 2. `release.yml`
 - Triggers on tags matching `v*`.
 - Re-runs `scripts/test_all.sh`.
+- Uploads `docs/test_logs` from release validation runs for diagnostics/evidence.
 - Publishes a GitHub release with a governance evidence bundle.
 
 3. `deploy-cloud-run.yml`

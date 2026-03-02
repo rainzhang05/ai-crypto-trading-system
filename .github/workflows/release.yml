@@ -24,6 +24,15 @@ jobs:
       - name: Run clean-room validation pipeline
         run: bash scripts/test_all.sh
 
+      - name: Upload docs test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-test-logs-${{ github.run_id }}
+          path: docs/test_logs
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Build release evidence bundle
         id: bundle
         run: |
