@@ -1,5 +1,7 @@
 # Global Codespace Test Plan (Phase 0 -> 1A -> 1B -> 1C -> 1D -> 2 -> 3 -> 4 -> 5)
 
+Repository executable-artifact coverage closure is mandatory for phase completion.
+
 ## Scope Matrix
 
 | Phase | Scope Under Test | Test Type(s) | Gate |
@@ -8,11 +10,12 @@
 | 1A | Deterministic contract primitives carried in canonical schema | Integration validation SQL | Phase 1C validation checks all return zero |
 | 1B | Replay-critical hashes, FK/hypertable safety, deterministic lineage constraints | Integration validation SQL | Phase 1C validation checks all return zero |
 | 1C (Rev B/C) | Revision C repair artifacts, trigger/function/`_v2` cleanup readiness | Governance artifact verification + validation SQL | Required files exist and validation checks all return zero |
-| 1D | Deterministic runtime execution modules (`execution/*`) and replay parity | Unit + DB integration + replay determinism tests | Runtime execution/replay tests pass; mismatch count zero; execution module coverage target = 100% |
+| 1D | Deterministic runtime execution modules (`execution/*`) and replay parity | Unit + DB integration + replay determinism tests | Runtime execution/replay tests pass; mismatch count zero; Python implementation coverage remains 100% line + branch |
 | 2 | Replay harness architecture (boundary loader, canonical serialization, hash DAG, failure classification, window parity aggregation) | Unit + DB integration + validation SQL | Phase 2 validation checks all return zero; replay harness tests pass |
 | 3 | Governed risk runtime implementation (profile-aware caps, volatility sizing, adaptive horizon routing) | Unit + DB integration + validation SQL | Phase 3 validation checks all return zero |
 | 4 | Deterministic order lifecycle (signal → order → fill → lot → trade) | Unit + DB integration + validation SQL | Phase 4 validation checks all return zero |
 | 5 | Deterministic portfolio/ledger engine (cash ledger + hourly state writers + replay parity extension) | Unit + DB integration + validation SQL | Phase 5 validation checks all return zero |
+| Cross-Phase Coverage Policy | Repository executable-artifact coverage closure (Python + non-Python executables) | Coverage manifest + integration execution + contract tests | Every phase implementation is incomplete until coverage closure is achieved for executable artifacts introduced/modified by that phase |
 
 ## Test Categories
 
@@ -42,6 +45,17 @@
   - `docs/validations/PHASE_4_ORDER_LIFECYCLE_VALIDATION.sql`
   - `docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql`
 
+- SQL artifact coverage policy:
+  - Canonical SQL artifacts execute in integration coverage tests.
+  - Duplicate SQL artifacts are enforced by strict equivalence to canonical repair files.
+  - Historical SQL artifacts excluded from execution require explicit policy declaration.
+
+- Non-SQL executable artifact contracts:
+  - `scripts/test_all.sh` syntax and contract checks.
+  - `.github/workflows/*.yml` clean-room gate contract checks.
+  - `docker-compose.yml` parse/contract checks.
+  - `Makefile` target contract checks.
+
 ## Pass/Fail Gates
 
 - Gate A: Clean-room DB bootstrap completes with no SQL errors.
@@ -54,8 +68,10 @@
 - Gate G: `docs/validations/PHASE_5_PORTFOLIO_LEDGER_VALIDATION.sql` returns zero violations for all checks.
 - Gate H: Schema equivalence check succeeds (`live_schema.sql` equals `schema_bootstrap.sql`; identical SHA-256).
 - Gate I: Pytest suite passes completely.
-- Gate J: Coverage across `execution/*` is 100% line coverage.
-- Gate K: Command exits non-zero on any failure (abort discipline enforced by `set -euo pipefail`).
+- Gate J: Coverage across `backend/*`, `execution/*`, and `scripts/*` is 100% line + branch.
+- Gate K: SQL artifacts are fully covered by execution/equivalence policy with explicit excluded-artifact policy.
+- Gate L: Repository executable-artifact coverage closure policy is enforced for phase completion evidence.
+- Gate M: Command exits non-zero on any failure (abort discipline enforced by `set -euo pipefail`).
 
 ## Commands
 

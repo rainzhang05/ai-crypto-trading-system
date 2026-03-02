@@ -471,6 +471,20 @@ Project is considered complete when:
 - Monitoring detects anomalies
 - Audit reconstruction reproducible from hash chain
 - Capital preservation rules cannot be bypassed
+- Every phase implementation is incomplete until coverage closure is achieved for all executable artifacts introduced or modified by that phase.
+- Python implementation coverage remains 100% line and 100% branch for `backend/`, `execution/`, and `scripts/`.
+- Non-Python executable artifacts are 100% classified and validated (execution, equivalence, or contract check).
+
+---
+
+# 6A. PHASE COVERAGE CLOSURE POLICY
+
+Coverage closure is mandatory for phase sign-off:
+
+1. A phase cannot be marked complete if any executable artifact added/changed by that phase lacks coverage closure evidence.
+2. Executable artifact scope includes SQL, shell scripts, workflow definitions, and infrastructure configuration files.
+3. Historical artifacts may be excluded only by explicit policy with documented rationale and compensating checks.
+4. Coverage closure evidence must be reproducible in the clean-room deterministic pipeline.
 
 ---
 

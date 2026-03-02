@@ -230,6 +230,12 @@ ALTER TABLE model_training_window
     ADD COLUMN IF NOT EXISTS backtest_run_id UUID,
     ADD COLUMN IF NOT EXISTS training_window_hash CHAR(64);
 
+ALTER TABLE model_prediction
+    DROP CONSTRAINT IF EXISTS fk_model_prediction_lineage_fold_horizon;
+
+ALTER TABLE regime_output
+    DROP CONSTRAINT IF EXISTS fk_regime_output_lineage_fold_horizon;
+
 ALTER TABLE model_training_window
     DROP CONSTRAINT IF EXISTS uq_model_training_window_model_fold_horizon;
 
@@ -272,6 +278,12 @@ CREATE TABLE IF NOT EXISTS model_activation_gate (
 CREATE UNIQUE INDEX IF NOT EXISTS uqix_model_activation_gate_one_approved
     ON model_activation_gate (model_version_id, run_mode)
     WHERE status = 'APPROVED';
+
+ALTER TABLE model_prediction
+    DROP CONSTRAINT IF EXISTS fk_model_prediction_activation;
+
+ALTER TABLE regime_output
+    DROP CONSTRAINT IF EXISTS fk_regime_output_activation;
 
 ALTER TABLE model_activation_gate
     DROP CONSTRAINT IF EXISTS uq_model_activation_gate_activation_model_mode;
@@ -632,7 +644,7 @@ SELECT relname
 FROM pg_class
 WHERE relnamespace = 'public'::regnamespace
   AND relkind IN ('r','p','v','m','f')
-  AND relname LIKE '%\_v2' ESCAPE '\\';
+  AND relname LIKE '%\_v2' ESCAPE '\';
 
 SELECT table_name, column_name
 FROM information_schema.columns

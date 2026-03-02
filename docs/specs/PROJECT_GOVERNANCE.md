@@ -149,7 +149,22 @@ Before live capital scaling:
 
 ---
 
-# 12. PRIORITY ORDER
+# 12. PHASE COVERAGE CLOSURE POLICY
+
+Every phase implementation is incomplete until coverage closure is achieved for all executable artifacts introduced or modified by that phase.
+
+Coverage model (mandatory):
+
+- Python implementation coverage must remain 100% line and 100% branch for `backend/`, `execution/`, and `scripts/`.
+- Non-Python executable artifacts must be 100% classified and validated via execution, equivalence, or contract checks.
+
+Executable artifacts include SQL, shell scripts, workflow definitions, and infrastructure configs.
+
+Phase completion evidence must include both deterministic validation gates and phase coverage closure evidence.
+
+---
+
+# 13. PRIORITY ORDER
 
 When conflicts arise:
 
