@@ -504,6 +504,16 @@ def test_capital_preservation_absolute_amount_mode_paths() -> None:
     assert any(v.reason_code == "INVALID_TOTAL_EXPOSURE_MODE" for v in violations)
 
 
+def test_total_exposure_absolute_amount_no_violation_when_within_cap() -> None:
+    context = _Context()
+    profile = RuntimeRiskProfile(
+        total_exposure_mode=ABSOLUTE_AMOUNT,
+        max_total_exposure_amount=Decimal("3000"),
+    )
+    violations = enforce_capital_preservation("ENTER", Decimal("500"), context, profile)
+    assert all(v.reason_code != "TOTAL_EXPOSURE_AMOUNT_CAP_EXCEEDED" for v in violations)
+
+
 def test_cluster_cap_absolute_amount_and_mode_paths() -> None:
     context = _Context()
     profile = RuntimeRiskProfile(

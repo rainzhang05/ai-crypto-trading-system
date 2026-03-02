@@ -1142,6 +1142,129 @@ def test_context_order_book_and_executed_qty_helpers() -> None:
     assert context.executed_qty_for_lot(lot_id) == Decimal("0.250000000000000000")
 
 
+def test_context_order_book_fill_and_trade_iteration_non_matching_paths() -> None:
+    payload = _live_payload()
+    hour = payload["run_context"][0]["origin_hour_ts_utc"]
+    fill_target = UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")
+    lot_target = UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+
+    payload["order_book_snapshot"] = [
+        {
+            "asset_id": 1,
+            "snapshot_ts_utc": hour - timedelta(minutes=1),
+            "hour_ts_utc": hour,
+            "best_bid_price": Decimal("100.000000000000000000"),
+            "best_ask_price": Decimal("101.000000000000000000"),
+            "best_bid_size": Decimal("5.000000000000000000"),
+            "best_ask_size": Decimal("5.000000000000000000"),
+            "row_hash": "7" * 64,
+        },
+        {
+            "asset_id": 1,
+            "snapshot_ts_utc": hour - timedelta(minutes=10),
+            "hour_ts_utc": hour,
+            "best_bid_price": Decimal("99.000000000000000000"),
+            "best_ask_price": Decimal("100.000000000000000000"),
+            "best_bid_size": Decimal("6.000000000000000000"),
+            "best_ask_size": Decimal("6.000000000000000000"),
+            "row_hash": "8" * 64,
+        },
+    ]
+    payload["order_fill"] = [
+        {
+            "fill_id": str(UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc")),
+            "order_id": str(UUID("dddddddd-dddd-4ddd-8ddd-dddddddddddd")),
+            "run_id": str(payload["run_context"][0]["run_id"]),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "fill_ts_utc": hour - timedelta(hours=1),
+            "fill_price": Decimal("100.000000000000000000"),
+            "fill_qty": Decimal("1.000000000000000000"),
+            "fill_notional": Decimal("100.000000000000000000"),
+            "fee_paid": Decimal("0.400000000000000000"),
+            "realized_slippage_rate": Decimal("0.000170"),
+            "slippage_cost": Decimal("0.017000000000000000"),
+            "row_hash": "9" * 64,
+        },
+        {
+            "fill_id": str(fill_target),
+            "order_id": str(UUID("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")),
+            "run_id": str(payload["run_context"][0]["run_id"]),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "fill_ts_utc": hour - timedelta(minutes=30),
+            "fill_price": Decimal("101.000000000000000000"),
+            "fill_qty": Decimal("1.000000000000000000"),
+            "fill_notional": Decimal("101.000000000000000000"),
+            "fee_paid": Decimal("0.404000000000000000"),
+            "realized_slippage_rate": Decimal("0.000170"),
+            "slippage_cost": Decimal("0.017170000000000000"),
+            "row_hash": "a" * 64,
+        },
+    ]
+    payload["executed_trade"] = [
+        {
+            "trade_id": str(UUID("ffffffff-ffff-4fff-8fff-ffffffffffff")),
+            "lot_id": str(UUID("12121212-1212-4121-8121-121212121212")),
+            "run_id": str(payload["run_context"][0]["run_id"]),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "quantity": Decimal("0.150000000000000000"),
+            "row_hash": "b" * 64,
+        },
+        {
+            "trade_id": str(UUID("13131313-1313-4131-8131-131313131313")),
+            "lot_id": str(lot_target),
+            "run_id": str(payload["run_context"][0]["run_id"]),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "quantity": Decimal("0.250000000000000000"),
+            "row_hash": "c" * 64,
+        },
+    ]
+
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=hour,
+    )
+    snapshot = context.find_latest_order_book_snapshot(1, hour)
+    assert snapshot is not None
+    assert snapshot.snapshot_ts_utc == hour - timedelta(minutes=1)
+    assert context.find_existing_fill(fill_target) is not None
+    assert context.executed_qty_for_lot(lot_target) == Decimal("0.250000000000000000")
+
+
+def test_prior_ledger_hash_continuity_with_prev_hash_succeeds() -> None:
+    payload = _live_payload()
+    hour = payload["run_context"][0]["hour_ts_utc"]
+    payload["cash_ledger"] = [
+        {
+            "ledger_seq": 2,
+            "balance_before": Decimal("100"),
+            "balance_after": Decimal("110"),
+            "prev_ledger_hash": "p" * 64,
+            "ledger_hash": "z" * 64,
+            "row_hash": "y" * 64,
+            "event_ts_utc": hour - timedelta(hours=1),
+        }
+    ]
+
+    context = DeterministicContextBuilder(_FakeDB(payload)).build_context(
+        run_id=payload["run_context"][0]["run_id"],
+        account_id=1,
+        run_mode="LIVE",
+        hour_ts_utc=payload["run_context"][0]["origin_hour_ts_utc"],
+    )
+    assert context.prior_economic_state is not None
+    assert context.prior_economic_state.prev_ledger_hash == "p" * 64
+
+
 def test_context_risk_profile_validation_branches() -> None:
     payload = _live_payload()
     payload["risk_profile"][0]["total_exposure_mode"] = "INVALID"

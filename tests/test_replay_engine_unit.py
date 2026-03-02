@@ -817,6 +817,35 @@ def test_execute_hour_rolls_back_when_write_fails() -> None:
     assert db._tx_open is False
 
 
+def test_execute_hour_succeeds_without_transaction_hooks() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.begin = None  # type: ignore[assignment]
+    db.commit = None  # type: ignore[assignment]
+    db.rollback = None  # type: ignore[assignment]
+
+    result = execute_hour(db, db.run_id, 1, "LIVE", hour)
+    assert len(result.trade_signals) >= 1
+    assert db._tx_open is False
+
+
+def test_execute_hour_exception_path_without_transaction_hooks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.begin = None  # type: ignore[assignment]
+    db.commit = None  # type: ignore[assignment]
+    db.rollback = None  # type: ignore[assignment]
+
+    def _raise_phase5(**_: Any) -> Any:
+        raise RuntimeError("forced phase5 failure")
+
+    monkeypatch.setattr(replay_engine_module, "_ensure_phase5_hourly_state", _raise_phase5)
+    with pytest.raises(RuntimeError, match="forced phase5 failure"):
+        execute_hour(db, db.run_id, 1, "LIVE", hour)
+
+
 def test_plan_runtime_artifacts_missing_regime_aborts() -> None:
     db = _FakeDB()
     hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
@@ -1745,6 +1774,62 @@ def test_phase5_mark_price_fallbacks_and_missing_price_abort() -> None:
         )
 
 
+def test_phase5_mark_price_non_positive_values_fall_through_to_none() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.rows["order_book_snapshot"] = [
+        {
+            "asset_id": 1,
+            "snapshot_ts_utc": hour,
+            "hour_ts_utc": hour,
+            "best_bid_price": Decimal("0"),
+            "best_ask_price": Decimal("100.000000000000000000"),
+            "best_bid_size": Decimal("1000000.000000000000000000"),
+            "best_ask_size": Decimal("1000000.000000000000000000"),
+            "source_venue": "KRAKEN",
+            "row_hash": "n" * 64,
+        }
+    ]
+    db.rows["market_ohlcv_hourly"] = [
+        {
+            "asset_id": 1,
+            "hour_ts_utc": hour,
+            "close_price": Decimal("0"),
+            "row_hash": "o" * 64,
+            "source_venue": "KRAKEN",
+        }
+    ]
+    db.rows["order_fill"] = [
+        {
+            "fill_id": str(UUID("ffffffff-ffff-4fff-8fff-ffffffffffff")),
+            "order_id": str(UUID("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")),
+            "run_id": str(db.run_id),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "fill_ts_utc": hour - timedelta(hours=1),
+            "fill_price": Decimal("0"),
+            "fill_qty": Decimal("1.000000000000000000"),
+            "fill_notional": Decimal("0"),
+            "fee_paid": Decimal("0"),
+            "realized_slippage_rate": Decimal("0"),
+            "slippage_cost": Decimal("0"),
+            "row_hash": "p" * 64,
+            "origin_hour_ts_utc": hour - timedelta(hours=1),
+        }
+    ]
+    assert (
+        replay_engine_module._resolve_mark_price(
+            db=db,
+            account_id=1,
+            run_mode="LIVE",
+            asset_id=1,
+            hour_ts_utc=hour,
+        )
+        is None
+    )
+
+
 def test_phase5_expected_state_guards_and_position_skip() -> None:
     db = _FakeDB()
     hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
@@ -1925,6 +2010,46 @@ def test_phase5_cash_ledger_builder_and_ensure_conflicts() -> None:
         )
 
 
+def test_phase5_cash_ledger_ensure_idempotent_when_hashes_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    context = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    writer = AppendOnlyRuntimeWriter(db)
+    planned = _plan_runtime_artifacts(context, writer)
+    expected_rows = replay_engine_module._build_expected_cash_ledger_rows(
+        writer=writer,
+        context=context,
+        order_requests=planned.order_requests,
+        order_fills=planned.order_fills,
+        prior_ledger_state=context.prior_economic_state,
+    )
+    db.rows["cash_ledger"] = [
+        {
+            "run_id": str(db.run_id),
+            "account_id": 1,
+            "origin_hour_ts_utc": hour,
+            "ledger_seq": row.ledger_seq,
+            "row_hash": row.row_hash,
+        }
+        for row in expected_rows
+    ]
+
+    inserted_rows: list[Any] = []
+    monkeypatch.setattr(writer, "insert_cash_ledger", lambda row: inserted_rows.append(row))
+    ensured = replay_engine_module._ensure_phase5_cash_ledger_rows(
+        db=db,
+        writer=writer,
+        context=context,
+        order_requests=planned.order_requests,
+        order_fills=planned.order_fills,
+        prior_ledger_state=context.prior_economic_state,
+    )
+    assert ensured == expected_rows
+    assert inserted_rows == []
+
+
 def test_phase5_cash_bootstrap_and_reference_price_helpers() -> None:
     db = _FakeDB()
     hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
@@ -1988,6 +2113,38 @@ def test_phase5_cash_bootstrap_and_reference_price_helpers() -> None:
     ) == Decimal("55.000000000000000000")
 
     db.rows["market_ohlcv_hourly"] = []
+    context_none = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    assert replay_engine_module._resolve_signal_reference_price(
+        context=context_none,
+        asset_id=1,
+        side="BUY",
+    ) is None
+
+
+def test_resolve_signal_reference_price_non_positive_quote_paths() -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.rows["order_book_snapshot"][0]["best_ask_price"] = Decimal("0")
+    db.rows["market_ohlcv_hourly"][0]["close_price"] = Decimal("55.000000000000000000")
+    context_buy = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    assert replay_engine_module._resolve_signal_reference_price(
+        context=context_buy,
+        asset_id=1,
+        side="BUY",
+    ) == Decimal("55.000000000000000000")
+
+    db.rows["order_book_snapshot"][0]["best_bid_price"] = Decimal("0")
+    db.rows["order_book_snapshot"][0]["best_ask_price"] = Decimal("100.000000000000000000")
+    db.rows["market_ohlcv_hourly"][0]["close_price"] = Decimal("44.000000000000000000")
+    context_sell = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
+    assert replay_engine_module._resolve_signal_reference_price(
+        context=context_sell,
+        asset_id=1,
+        side="SELL",
+    ) == Decimal("44.000000000000000000")
+
+    db.rows["order_book_snapshot"] = []
+    db.rows["market_ohlcv_hourly"][0]["close_price"] = Decimal("0")
     context_none = DeterministicContextBuilder(db).build_context(db.run_id, 1, "LIVE", hour)
     assert replay_engine_module._resolve_signal_reference_price(
         context=context_none,
