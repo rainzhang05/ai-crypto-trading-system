@@ -155,9 +155,9 @@ fi
 echo "[test_all] Preparing Python test environment..."
 rm -rf "${VENV_DIR}"
 python3 -m venv "${VENV_DIR}"
-source "${VENV_DIR}/bin/activate"
-python -m pip install --upgrade pip > "${LOG_DIR}/pip_install.log"
-python -m pip install -r "${ROOT_DIR}/requirements-dev.txt" >> "${LOG_DIR}/pip_install.log"
+VENV_PY="${VENV_DIR}/bin/python"
+"${VENV_PY}" -m pip install --upgrade pip > "${LOG_DIR}/pip_install.log"
+"${VENV_PY}" -m pip install -r "${ROOT_DIR}/requirements-dev.txt" >> "${LOG_DIR}/pip_install.log"
 
 echo "[test_all] Enabling runtime fixture inserts in ephemeral DB..."
 docker exec -i "${CONTAINER_NAME}" psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 -At \
@@ -176,7 +176,7 @@ export TEST_DB_USER="${DB_USER}"
 export TEST_DB_PASSWORD="${DB_PASSWORD}"
 
 echo "[test_all] Running Phase 2 replay-tool smoke check..."
-python "${ROOT_DIR}/scripts/replay_cli.py" \
+"${VENV_PY}" "${ROOT_DIR}/scripts/replay_cli.py" \
   --host "${TEST_DB_HOST}" \
   --port "${TEST_DB_PORT}" \
   --dbname "${TEST_DB_NAME}" \
@@ -187,6 +187,6 @@ python "${ROOT_DIR}/scripts/replay_cli.py" \
 
 echo "[test_all] Running pytest + coverage..."
 cd "${ROOT_DIR}"
-pytest | tee "${LOG_DIR}/pytest.log"
+"${VENV_PY}" -m pytest | tee "${LOG_DIR}/pytest.log"
 
 echo "[test_all] PASS"
