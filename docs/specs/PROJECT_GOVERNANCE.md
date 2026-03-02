@@ -168,6 +168,7 @@ Model and inference artifacts are governed release assets:
 Historical data + retraining governance requirements:
 
 - A deep-history external provider adapter is mandatory for model-training backfill scope.
+- Phase 6A source policy is restricted to `COINAPI` + `KRAKEN_PUBLIC` only.
 - Training universe must be versioned and explicitly documented.
 - Universe V1 is the top-30 non-stable governed set defined in:
   - `docs/specs/HISTORICAL_DATA_PROVIDER_AND_CONTINUOUS_TRAINING_SPEC.md`
@@ -178,6 +179,10 @@ Historical data + retraining governance requirements:
   - `HIST_MARKET_DATA_API_KEY`
   - `HIST_MARKET_DATA_API_SECRET` (provider-dependent)
   - `HIST_MARKET_DATA_BASE_URL` (provider-dependent)
+  - `KRAKEN_PUBLIC_BASE_URL`
+  - `UNIVERSE_RANKING_SOURCE`
+  - `FORCE_LOCAL_DATA_FOR_TRAINING`
+  - `ALLOW_PROVIDER_CALLS_DURING_TRAINING`
 
 ---
 

@@ -347,6 +347,7 @@ Phase 6A implementation mandate:
 - historical provider integration + full available-history backfill
 - continuous incremental data sync
 - continuous retraining bootstrap across governed Universe V1
+- source policy locked to `COINAPI` + `KRAKEN_PUBLIC` only for Phase 6A
 - Universe V1 symbols: `BTC, ETH, BNB, XRP, SOL, TRX, ADA, BCH, XMR, LINK, XLM, HBAR, LTC, AVAX, ZEC, SUI, SHIB, TON, DOT, UNI, AAVE, TAO, NEAR, ETC, ICP, POL, KAS, ALGO, FIL, APT`
 Phase 5 closure details are documented in:
 

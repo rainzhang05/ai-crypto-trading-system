@@ -107,6 +107,7 @@ Initial training universe (V1, top-30 non-stable):
 Required preparation for Phase 6A:
 
 - configure external historical market-data provider credentials (`HIST_MARKET_DATA_API_KEY`, provider-dependent secret/base URL as needed)
+- enforce data-source policy: `COINAPI` + `KRAKEN_PUBLIC` only for Phase 6A
 - Kraken private API keys are not required until paper/live exchange-credential phases
 - copy `.env.example` to `.env` and populate provider credentials before running ingestion/training automation
 

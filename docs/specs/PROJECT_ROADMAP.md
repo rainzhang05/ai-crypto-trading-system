@@ -317,6 +317,7 @@ Training universe policy:
 
 Provider/key readiness requirements:
 
+- Data-source policy is restricted to `COINAPI` + `KRAKEN_PUBLIC` for Phase 6A.
 - Historical provider API credentials and endpoint configuration must be supported.
 - Kraken private trading keys are not required for Phase 6A.
 

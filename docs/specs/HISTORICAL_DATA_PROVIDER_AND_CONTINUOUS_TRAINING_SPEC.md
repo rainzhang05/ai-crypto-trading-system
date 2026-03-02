@@ -51,9 +51,15 @@ Provider adapter design must be pluggable (no hardcoded vendor lock in core trai
 
 Default implementation recommendation (v1):
 
-1. Primary historical provider: `COINAPI` (deep-history OHLCV/trades ingestion path).
-2. Universe/market-cap metadata provider: `COINGECKO` (universe maintenance and ranking metadata).
-3. Venue parity source: `KRAKEN_PUBLIC` (pair/symbol and venue-aligned continuity checks).
+1. Primary historical and ranking provider: `COINAPI` (deep-history OHLCV/trades ingestion path + universe maintenance metadata).
+2. Venue parity source: `KRAKEN_PUBLIC` (pair/symbol and venue-aligned continuity checks).
+
+Phase 6A source policy is strictly two-source:
+
+- `COINAPI`
+- `KRAKEN_PUBLIC`
+
+No third external data source is required for Phase 6A.
 
 ## 2.2 Key/Secret Readiness Requirements
 
@@ -79,10 +85,13 @@ remain optional for Phase 6A and become mandatory only for live/paper exchange a
 - `HIST_MARKET_DATA_API_KEY`
 - `HIST_MARKET_DATA_API_SECRET` (blank when provider does not require)
 - `HIST_MARKET_DATA_BASE_URL`
-- `UNIVERSE_SOURCE_PROVIDER` (`COINGECKO`)
-- `UNIVERSE_SOURCE_API_KEY` (provider tier dependent)
+- `KRAKEN_PUBLIC_BASE_URL`
+- `UNIVERSE_RANKING_SOURCE` (`COINAPI`)
 - `UNIVERSE_REFRESH_CRON` (for ranking refresh cadence)
 - `TRAINING_UNIVERSE_VERSION` (default `UNIVERSE_V1_TOP30_NON_STABLE`)
+- `LOCAL_DATA_CACHE_DIR` (canonical local archive path)
+- `FORCE_LOCAL_DATA_FOR_TRAINING` (`true`)
+- `ALLOW_PROVIDER_CALLS_DURING_TRAINING` (`false`)
 - `ENABLE_CONTINUOUS_INGESTION` (`true`)
 - `ENABLE_AUTONOMOUS_RETRAINING` (`true`)
 
@@ -120,6 +129,23 @@ Phase 6A data lifecycle must implement:
 4. Dataset materialization:
    - Build training-ready canonical datasets from raw ingest with reproducible transforms.
    - Emit deterministic dataset hash artifacts.
+
+## 3.1 Cost-Optimized Data Strategy (Mandatory)
+
+To minimize API spend and maximize determinism:
+
+1. Run one-time deep-history backfill per symbol into local append-only archive.
+2. Run incremental ingest from provider watermarks for new data only.
+3. Train models from local canonical datasets only.
+4. Disallow direct provider fetches during standard training loops.
+5. Allow provider calls during training only for explicit gap-repair workflows.
+
+Cost-control requirements:
+
+1. Every ingest job must persist request-range watermarks and call counts.
+2. Backfill/incremental jobs must be resumable from last successful watermark.
+3. API retry/backoff must be bounded by configured budget and rate-limit policies.
+4. Training pipelines must fail fast if local dataset completeness checks fail.
 
 ---
 
@@ -199,10 +225,13 @@ Training must maximize out-of-sample predictive quality and decision utility whi
 2. Calibrated probability quality (not just raw classification accuracy).
 3. Risk-adjusted trading utility in deterministic simulation.
 4. Stability under regime shifts (degradation controls and drift detection).
+5. Cross-asset transfer quality (global model signal usefulness for per-coin specialists).
+6. Robust calibration under extreme-volatility windows.
 
 Mandatory anti-overfit rule:
 
 - No model promotion can be justified by in-sample metrics only.
+- “Best possible intelligence” means maximizing governed out-of-sample performance and reliability, not maximizing in-sample fit.
 
 ## 5.2 Per-Model Training Method Contract
 
@@ -215,6 +244,7 @@ Must implement:
 3. Multi-horizon supervised targets (direction + return magnitude categories/values).
 4. Post-training probability calibration (Platt/isotonic or governed equivalent).
 5. Deterministic hyperparameter search with reproducible seeds and lineage logging.
+6. Champion/challenger tracking across retraining cycles with automatic regression checks.
 
 ### 5.2.2 Sequence Specialists (LSTM, Transformer)
 
@@ -225,6 +255,7 @@ Must implement:
 3. Multi-task outputs for directional probability, expected move, and risk context.
 4. Early stopping and regularization governed by walk-forward OOS metrics.
 5. Deterministic training artifacts (seed, config hash, dataset hash).
+6. Rolling recalibration and uncertainty scoring under regime shifts.
 
 ### 5.2.3 Regime Classifier
 
@@ -241,6 +272,7 @@ Must implement:
 1. Leakage-safe stacking using out-of-fold base-model predictions only.
 2. Deterministic combination weights and confidence outputs.
 3. Promotion criteria based on both forecast quality and deterministic strategy utility.
+4. Dynamic model-confidence weighting with deterministic fallback when confidence quality degrades.
 
 ## 5.3 Hindcast + Forecast Quality Tests
 
