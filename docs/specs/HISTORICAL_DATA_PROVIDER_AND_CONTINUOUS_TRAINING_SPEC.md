@@ -31,6 +31,7 @@ This spec is binding with:
 3. Data lineage and model lineage must be deterministic and replay-auditable.
 4. Retraining must run continuously (scheduled and/or drift-triggered) with governed promotion gates.
 5. No model can be promoted to runtime authority unless validation gates pass.
+6. Promoted model/algorithm artifacts must be versioned in repository and continuously pushed through governed git workflow.
 
 ---
 
@@ -301,6 +302,7 @@ Each retraining run must produce:
 - metric package
 - model artifact set
 - promotion decision evidence
+- repository publish metadata (commit/tag/path references for promoted artifacts)
 
 Promotion gates are mandatory:
 
@@ -310,6 +312,12 @@ Promotion gates are mandatory:
 4. Replay/audit artifact completeness.
 
 Failed promotion leaves prior active model set unchanged.
+
+Repository publication policy:
+
+1. Only promoted model sets are publish-eligible to governed repository paths.
+2. Publication must be deterministic and auditable (manifest + checksums + commit references).
+3. macOS app sync must consume these repository-published artifacts as authoritative update inputs.
 
 ## 6.1 Autonomous Runtime and Human Oversight Cadence
 

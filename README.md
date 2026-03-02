@@ -184,13 +184,13 @@ Product direction is local-first:
 
 - core trading runtime must be fully operable on user machines without mandatory cloud dependency
 - optional cloud services may be added later for backup/sync/update channels
-- trained inference-ready model artifacts and metadata are distributed as signed GitHub Release bundles
+- trained inference-ready model/data/algorithm artifacts are versioned in this GitHub repository and continuously updated
 - users receive one-click model updates with compatibility checks and rollback protection
 
 Bundled distribution policy:
 
 - users should not start from empty, untrained models on first install
-- release bundles include inference artifacts and lineage metadata
+- repository-published artifacts include inference artifacts and lineage metadata
 - full raw training datasets are not required in default user bundles
 
 ---

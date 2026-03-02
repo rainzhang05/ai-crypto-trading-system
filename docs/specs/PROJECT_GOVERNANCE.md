@@ -154,12 +154,13 @@ Local security/privacy requirements:
 
 # 7C. MODEL BUNDLE GOVERNANCE
 
-Model and inference artifacts are governed release assets:
+Model and inference artifacts are governed repository assets:
 
-- inference-ready artifacts must be distributed as signed release bundles
+- inference-ready artifacts must be versioned in this repository and continuously updated via governed git workflow
 - users must not start from an empty/untrained model state on first install
 - bundle compatibility (app/backend/model) must be versioned and enforced
 - update workflow must support verification, atomic install, and rollback on failure
+- macOS app update/sync channel must retrieve artifacts from this GitHub repository path set
 
 ---
 

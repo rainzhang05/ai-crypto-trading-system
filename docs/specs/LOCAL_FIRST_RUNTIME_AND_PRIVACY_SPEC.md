@@ -68,6 +68,7 @@ Local paths must be standardized and documented for:
 - runtime state store
 - deterministic audit logs
 - model bundle cache
+- repository-sync cache (GitHub source snapshots/manifests)
 - update staging and rollback snapshots
 
 Privacy controls:
@@ -75,6 +76,12 @@ Privacy controls:
 - explicit data-retention policy for local logs/artifacts
 - user-visible local data export/delete controls
 - clear opt-in boundaries for any optional cloud backup/sync
+
+Repository sync controls:
+
+- macOS app and/or local runtime may connect to GitHub repository for governed artifact sync
+- repository credentials/tokens (if used) must follow the same non-plaintext secret handling rules
+- offline mode must continue to operate using last known good local model set
 
 ---
 

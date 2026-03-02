@@ -19,11 +19,12 @@ The product must maintain an explicit compatibility matrix across:
 - desktop app version
 - local runtime/backend version
 - model bundle version
+- repository artifact commit/tag version
 
 Rules:
 
 1. Incompatible combinations must be blocked before activation.
-2. Compatibility policy must be published in release artifacts.
+2. Compatibility policy must be published in repository manifests/artifacts.
 3. Compatibility checks must be validated in CI/release pipeline.
 
 ---
@@ -35,6 +36,7 @@ The local-first system must support deterministic backup/restore for:
 - runtime state
 - local audit artifacts
 - active and prior model bundles
+- repository sync metadata (last-good commit/tag and manifest set)
 
 Requirements:
 
@@ -90,6 +92,7 @@ Model/update artifact trust policy must define:
 - signing authorities and trust anchors
 - key rotation cadence and process
 - emergency revocation behavior
+- repository provenance trust boundaries (approved branches/tags/signers)
 
 Verification behavior must reject revoked signers and invalid signatures deterministically.
 

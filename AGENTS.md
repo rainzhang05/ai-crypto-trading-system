@@ -369,7 +369,7 @@ Future phases (per roadmap) will extend:
 - Local runtime service with loopback control API
 - Operator frontend for governed settings + runtime observability
 - Guided Kraken account onboarding for user-managed API credential connection
-- Signed model-bundle distribution and one-click updater path
+- Repository-native model/algorithm distribution and one-click updater path
 - Production orchestration
 
 ---

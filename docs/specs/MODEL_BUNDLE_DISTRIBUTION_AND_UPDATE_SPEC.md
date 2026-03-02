@@ -1,8 +1,8 @@
 # AI CRYPTO TRADING SYSTEM
 ## MODEL BUNDLE DISTRIBUTION AND UPDATE SPECIFICATION
-Version: 1.0
+Version: 1.1
 Status: AUTHORITATIVE (FUTURE DELIVERY REQUIREMENTS)
-Scope: Inference Artifact Packaging, Release Distribution, Compatibility, and Update Safety
+Scope: Inference Artifact Packaging, GitHub Repository Distribution, Compatibility, and Update Safety
 
 ---
 
@@ -16,7 +16,15 @@ Define mandatory standards for delivering trained inference artifacts to users a
 
 Primary channel:
 
-- signed GitHub Release artifact bundles.
+- GitHub repository-native model registry (continuous versioned commits/tags in this repository).
+
+Repository policy:
+
+1. Trained model files, algorithm artifacts, and required metadata are versioned in-repo.
+2. Updates are continuously pushed through governed git workflow (branch/PR/merge/tag).
+3. macOS app sync path must read model/data artifacts from this repository (directly or through local runtime proxy).
+4. GitHub Releases may be used as optional mirrors, but repository state is authoritative.
+5. Large binary artifacts should use repository-supported large-file strategy (for example Git LFS) while preserving manifest determinism.
 
 Default bundle scope:
 
@@ -35,7 +43,7 @@ Historical data acquisition/backfill for retraining is governed separately by:
 
 # 2. Model Bundle Manifest Contract
 
-Each release bundle must include a manifest with at least:
+Each model package manifest committed to repository must include at least:
 
 - `bundle_version`
 - `model_family_versions`
@@ -44,6 +52,8 @@ Each release bundle must include a manifest with at least:
 - `compatibility_range` (app/backend/model)
 - artifact checksum set
 - signature metadata
+- source commit/tag reference
+- repository path inventory of required artifacts
 
 Manifest semantics must be deterministic and reproducible.
 
@@ -53,11 +63,12 @@ Manifest semantics must be deterministic and reproducible.
 
 Update/install workflow must enforce:
 
-1. Signature verification.
-2. Checksum verification.
-3. Compatibility verification against local app/backend/runtime.
+1. Checksum verification for all downloaded artifacts.
+2. Compatibility verification against local app/backend/runtime.
+3. Repository provenance verification (approved branch/tag policy).
+4. Signature verification where signing metadata is provided/enforced by trust policy.
 
-Tampered or incompatible bundles must be rejected deterministically.
+Tampered, incompatible, or unapproved-provenance artifacts must be rejected deterministically.
 
 ---
 
@@ -65,10 +76,10 @@ Tampered or incompatible bundles must be rejected deterministically.
 
 Update process must provide:
 
-- staging area for candidate bundle
+- staging area for candidate repository snapshot/model set
 - atomic install swap
-- rollback-on-failure to last known good bundle
-- deterministic audit trail of update attempts and outcomes
+- rollback-on-failure to last known good model set
+- deterministic audit trail of sync/update attempts and outcomes
 
 No partial install may become active.
 
@@ -78,12 +89,12 @@ No partial install may become active.
 
 Desktop app must provide:
 
-- one-click check/apply update path
+- one-click check/apply sync path from GitHub repository
 - clear version and compatibility visibility
 - clear failure reason messaging on rejection
 - rollback status visibility when fallback occurs
 
-Users should not need to rebuild project code to update model bundles.
+Users should not need to rebuild project code to receive updated in-repo model artifacts.
 
 ---
 
@@ -91,8 +102,8 @@ Users should not need to rebuild project code to update model bundles.
 
 Local system must retain:
 
-- current active bundle
-- previous known-good bundle (minimum one rollback point)
+- current active model set synced from repository
+- previous known-good model set (minimum one rollback point)
 - update logs with timestamps and validation outcomes
 
 Retention windows and cleanup policy must be documented.
@@ -104,10 +115,11 @@ Retention windows and cleanup policy must be documented.
 Implementation is compliant only when:
 
 1. Users receive trained inference artifacts on first install (no empty-model start).
-2. Bundles are signature/checksum verified before activation.
-3. Incompatible bundles are blocked before runtime activation.
-4. Failed updates automatically rollback to prior working bundle.
-5. Update workflows are auditable and deterministic.
+2. macOS app can retrieve governed model/data artifacts from the GitHub repository sync channel.
+3. Artifacts are checksum/provenance verified before activation.
+4. Incompatible or unapproved artifacts are blocked before runtime activation.
+5. Failed sync/update automatically rolls back to prior working model set.
+6. Update workflows are auditable and deterministic.
 
 ---
 

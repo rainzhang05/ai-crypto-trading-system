@@ -206,8 +206,9 @@ Productization direction is local-first:
 
 Model delivery/update direction:
 
-- trained inference-ready artifacts are shipped as signed release bundles
+- trained inference-ready model/data/algorithm artifacts are versioned in this GitHub repository and continuously updated
 - users should not initialize from empty/untrained models on first install
+- macOS app sync path retrieves governed artifacts from this repository
 - model updates require compatibility checks, atomic swap, and rollback on failure
 
 ---

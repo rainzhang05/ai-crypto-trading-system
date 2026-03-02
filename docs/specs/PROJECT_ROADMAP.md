@@ -491,17 +491,19 @@ Live capital scaling permitted.
 
 ---
 
-## PHASE 10A — MODEL BUNDLE RELEASE AND ONE-CLICK UPDATER
+## PHASE 10A — MODEL REPOSITORY SYNC AND ONE-CLICK UPDATER
 
 Implement:
-- signed GitHub Release artifact bundles for inference-ready models/metadata
+- in-repo model/algorithm artifact registry with governed commit/tag update workflow
+- macOS app repository sync path for model/data/algorithm retrieval
 - model bundle manifest contract with compatibility ranges and checksum/signature fields
 - in-app one-click update flow with verification and compatibility checks
 - atomic swap install strategy with rollback-on-failure
 - update audit trail surfaced in local logs/operator UI
 
 Acceptance:
-- users can update model bundles without rebuilding project
+- users can update model/algorithm artifacts without rebuilding project
+- app sync retrieves governed artifacts from GitHub repository channel
 - tampered/incompatible bundles are rejected deterministically
 - previous working bundle is restored on failed update
 
@@ -697,7 +699,7 @@ Project is considered complete when:
 - Local runtime service enables secure local-only control via authenticated loopback API
 - Operator frontend (macOS) allows governed settings changes, runtime observability, predictions/decisions inspection, and holdings/chart visibility without risk bypass
 - Global and per-currency (`CAD`, `USD`, `USDC`) budget caps are enforced with deterministic reason-code evidence
-- Model bundle lifecycle supports signed distribution, compatibility gating, and rollback-safe one-click updates
+- Model bundle lifecycle supports repository-native distribution, compatibility gating, and rollback-safe one-click updates
 - Audit reconstruction reproducible from hash chain
 - Capital preservation rules cannot be bypassed
 - Every phase implementation is incomplete until coverage closure is achieved for all executable artifacts introduced or modified by that phase.
