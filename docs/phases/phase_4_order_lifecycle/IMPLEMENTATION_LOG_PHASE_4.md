@@ -73,7 +73,7 @@ Executed successfully:
 Observed outcomes:
 
 - Execution package coverage: `100.00%`
-- Full suite: `158 passed`
+- Full suite: `159 passed`
 - Phase 1C/1D/2/3/4 validation gates: all zero violations
 - Clean-room pipeline status: `PASS`
 
@@ -89,3 +89,36 @@ Phase 4 closure criteria met:
 - no schema drift from canonical bootstrap
 
 Phase 5 is unblocked.
+
+---
+
+## Phase 5 Handoff Package
+
+Phase 5 implementation must build on Phase 4 artifacts without changing Phase 4 lifecycle semantics.
+
+Authoritative inputs:
+
+- `order_fill`
+- `position_lot`
+- `executed_trade`
+- `order_request` + `trade_signal` + `risk_event` evidence chain
+
+Phase 5 primary deliverables:
+
+- deterministic `cash_ledger` writing from realized execution economics
+- deterministic `portfolio_hourly_state` roll-forward
+- deterministic `cluster_exposure_hourly_state` roll-forward
+- deterministic `risk_hourly_state` writer integration with replay parity
+
+Do not change in Phase 5:
+
+- Phase 4 retry schedule (`+1m`, `+2m`, `+4m`)
+- FIFO sell allocation policy
+- fill pricing precedence (order book first, OHLCV fallback)
+- append-only order/fill/lot/trade semantics
+
+Phase 5 validation expectations:
+
+- add a dedicated Phase 5 validation SQL gate to `docs/validations/`
+- wire gate into `scripts/test_all.sh` and `tests/integration/test_validation_sql.py`
+- extend replay parity assertions for newly written economic artifacts

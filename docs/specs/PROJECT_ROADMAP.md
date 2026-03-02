@@ -228,7 +228,7 @@ Status:
 
 ---
 
-## PHASE 5 — PORTFOLIO & LEDGER ENGINE
+## PHASE 5 — PORTFOLIO & LEDGER ENGINE (READY TO START)
 
 Implement:
 - Deterministic ledger writer
@@ -242,6 +242,32 @@ Must guarantee:
 - Arithmetic continuity
 - No drift
 - Immutable economic record
+
+Phase 5 entry contract (authoritative handoff from Phase 4):
+
+- Input artifacts are authoritative from completed Phase 4 tables:
+  - `order_fill`
+  - `position_lot`
+  - `executed_trade`
+  - `order_request` / `trade_signal` / `risk_event` evidence traces
+- Economic writers must remain deterministic and append-only compatible:
+  - `cash_ledger`
+  - `portfolio_hourly_state`
+  - `cluster_exposure_hourly_state`
+  - `risk_hourly_state`
+- Writer outputs must preserve:
+  - no leverage
+  - arithmetic continuity
+  - replay reproducibility
+  - schema contract equivalence with `schema_bootstrap.sql`
+
+Phase 5 starting implementation surfaces:
+
+- `execution/replay_engine.py` (planning + deterministic economic artifact emission)
+- `execution/runtime_writer.py` (row builders/inserts/hash materialization for economic tables)
+- `execution/deterministic_context.py` (load prior economic state surfaces for deterministic roll-forward)
+- `scripts/replay_cli.py` (hour execution/replay result surfaces for Phase 5 artifacts)
+- `tests/` + `docs/validations/` (new Phase 5 SQL gate and parity/invariant coverage)
 
 ---
 

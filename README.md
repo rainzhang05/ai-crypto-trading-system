@@ -14,10 +14,10 @@ Core intent:
 - use adaptive campaign management instead of fixed hold timers
 - support deterministic replay/audit for every decision
 
-Current project state:
+Implementation state tracking:
 
-- Phase 0-4 deterministic core, replay harness, governed risk runtime, and deterministic order lifecycle engine are complete.
-- Phase 5 (portfolio and ledger engine writers) is the next implementation target per `docs/specs/PROJECT_ROADMAP.md`.
+- Current phase-by-phase status is maintained in `AGENTS.md` and `docs/specs/PROJECT_ROADMAP.md`.
+- This README intentionally describes the final production-grade system behavior and invariants.
 
 ---
 
