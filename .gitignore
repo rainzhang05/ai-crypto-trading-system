@@ -211,3 +211,7 @@ __marimo__/
 
 # Virtual environment created by venv module
 .venv-test
+
+# Phase 6A local historical data/training artifacts
+data/market_archive/
+mlruns/
