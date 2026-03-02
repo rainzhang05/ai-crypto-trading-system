@@ -269,6 +269,27 @@ class _FakeDB:
 
     def fetch_all(self, sql: str, params: Mapping[str, Any]) -> Sequence[Mapping[str, Any]]:
         q = " ".join(sql.lower().split())
+
+        def _filter_origin(rows: Sequence[Mapping[str, Any]]) -> Sequence[Mapping[str, Any]]:
+            origin_hour = params.get("hour_ts_utc")
+            run_id = str(params.get("run_id")) if params.get("run_id") is not None else None
+            account_id = params.get("account_id")
+            filtered: list[Mapping[str, Any]] = []
+            for row in rows:
+                row_origin = row.get("origin_hour_ts_utc")
+                if "origin_hour_ts_utc < :hour_ts_utc" in q:
+                    if row_origin is None or origin_hour is None or row_origin >= origin_hour:
+                        continue
+                if "origin_hour_ts_utc = :hour_ts_utc" in q:
+                    if row_origin is None or origin_hour is None or row_origin != origin_hour:
+                        continue
+                if "run_id = :run_id" in q and run_id is not None and str(row.get("run_id")) != run_id:
+                    continue
+                if "account_id = :account_id" in q and account_id is not None and row.get("account_id") != account_id:
+                    continue
+                filtered.append(row)
+            return filtered
+
         if "select run_mode" in q and "from run_context" in q:
             return [{"run_mode": "LIVE"}] if self.rows["run_context"] else []
         if "with ordered as" in q and "from cash_ledger" in q:
@@ -316,13 +337,13 @@ class _FakeDB:
         if "from order_request" in q:
             return list(self.rows["order_request"])
         if "from order_fill" in q:
-            return list(self.rows["order_fill"])
+            return list(_filter_origin(self.rows["order_fill"]))
         if "from position_lot" in q:
-            return list(self.rows["position_lot"])
+            return list(_filter_origin(self.rows["position_lot"]))
         if "from executed_trade" in q:
-            return list(self.rows["executed_trade"])
+            return list(_filter_origin(self.rows["executed_trade"]))
         if "from risk_event" in q:
-            return list(self.rows["risk_event"])
+            return list(_filter_origin(self.rows["risk_event"]))
         if "from cash_ledger" in q:
             return list(self.rows["cash_ledger"])
         if "from model_training_window" in q:
@@ -355,12 +376,7 @@ class _FakeDB:
             self.rows["executed_trade"].append(dict(params))
             return
         if "insert into risk_event" in q:
-            self.rows["risk_event"].append(
-                {
-                    "risk_event_id": params["risk_event_id"],
-                    "row_hash": params["row_hash"],
-                }
-            )
+            self.rows["risk_event"].append(dict(params))
             return
         raise RuntimeError(f"Unhandled execute SQL: {sql}")
 
@@ -694,6 +710,7 @@ def test_plan_runtime_artifacts_exit_generates_sell_and_trade_with_preloaded_lot
             "realized_slippage_rate": Decimal("0.000170"),
             "slippage_cost": Decimal("0.016150000000000000"),
             "row_hash": "a1" * 32,
+            "origin_hour_ts_utc": hour - timedelta(hours=1),
         }
     )
     db.rows["position_lot"].append(
@@ -710,6 +727,7 @@ def test_plan_runtime_artifacts_exit_generates_sell_and_trade_with_preloaded_lot
             "open_fee": Decimal("0.380000000000000000"),
             "remaining_qty": Decimal("1.000000000000000000"),
             "row_hash": "b1" * 32,
+            "origin_hour_ts_utc": hour - timedelta(hours=1),
         }
     )
 
@@ -860,6 +878,7 @@ def test_compare_trades_presence_and_hash_mismatch_branches(
             "realized_slippage_rate": Decimal("0.000170"),
             "slippage_cost": Decimal("0.016150000000000000"),
             "row_hash": "c1" * 32,
+            "origin_hour_ts_utc": hour - timedelta(hours=1),
         }
     )
     db.rows["position_lot"].append(
@@ -876,6 +895,7 @@ def test_compare_trades_presence_and_hash_mismatch_branches(
             "open_fee": Decimal("0.380000000000000000"),
             "remaining_qty": Decimal("1.000000000000000000"),
             "row_hash": "d1" * 32,
+            "origin_hour_ts_utc": hour - timedelta(hours=1),
         }
     )
 
@@ -908,6 +928,69 @@ def test_compare_trades_presence_and_hash_mismatch_branches(
         [{"trade_id": str(trade.trade_id), "row_hash": "f" * 64}],
     )
     assert any(m.field_name == "row_hash" for m in mismatches)
+
+
+def test_replay_exit_path_with_historical_lot_has_zero_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db = _FakeDB()
+    hour = db.rows["run_context"][0]["origin_hour_ts_utc"]
+    db.rows["model_prediction"][0]["expected_return"] = Decimal("-0.020000000000000000")
+
+    open_fill_id = UUID("12121212-1212-4121-8121-121212121212")
+    lot_id = UUID("34343434-3434-4343-8343-343434343434")
+    db.rows["order_fill"].append(
+        {
+            "fill_id": str(open_fill_id),
+            "order_id": str(UUID("56565656-5656-4565-8565-565656565656")),
+            "run_id": str(db.run_id),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "fill_ts_utc": hour - timedelta(hours=1),
+            "fill_price": Decimal("95.000000000000000000"),
+            "fill_qty": Decimal("1.000000000000000000"),
+            "fill_notional": Decimal("95.000000000000000000"),
+            "fee_paid": Decimal("0.380000000000000000"),
+            "realized_slippage_rate": Decimal("0.000170"),
+            "slippage_cost": Decimal("0.016150000000000000"),
+            "row_hash": "e1" * 32,
+            "origin_hour_ts_utc": hour - timedelta(hours=1),
+        }
+    )
+    db.rows["position_lot"].append(
+        {
+            "lot_id": str(lot_id),
+            "open_fill_id": str(open_fill_id),
+            "run_id": str(db.run_id),
+            "run_mode": "LIVE",
+            "account_id": 1,
+            "asset_id": 1,
+            "open_ts_utc": hour - timedelta(hours=1),
+            "open_price": Decimal("95.000000000000000000"),
+            "open_qty": Decimal("1.000000000000000000"),
+            "open_fee": Decimal("0.380000000000000000"),
+            "remaining_qty": Decimal("1.000000000000000000"),
+            "row_hash": "f1" * 32,
+            "origin_hour_ts_utc": hour - timedelta(hours=1),
+        }
+    )
+
+    monkeypatch.setattr(
+        replay_engine_module,
+        "deterministic_decision",
+        lambda **_: DecisionResult(
+            decision_hash="2" * 64,
+            action="EXIT",
+            direction="FLAT",
+            confidence=Decimal("0.7000000000"),
+            position_size_fraction=Decimal("0.0000000000"),
+        ),
+    )
+
+    execute_hour(db, db.run_id, 1, "LIVE", hour)
+    report = replay_hour(db, db.run_id, 1, hour)
+    assert report.mismatch_count == 0
 
 
 def test_derive_order_intent_validation_and_branch_coverage() -> None:

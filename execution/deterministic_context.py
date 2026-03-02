@@ -453,12 +453,20 @@ class DeterministicContextBuilder:
         asset_precisions = self._load_asset_precisions(predictions)
         order_book_snapshots = self._load_order_book_snapshots(predictions, hour_ts_utc)
         ohlcv_rows = self._load_ohlcv_rows(predictions, hour_ts_utc)
-        existing_order_fills = self._load_existing_order_fills(run_id, account_id, normalized_mode)
-        existing_position_lots = self._load_existing_position_lots(run_id, account_id, normalized_mode)
-        existing_executed_trades = self._load_existing_executed_trades(
-            run_id,
+        existing_order_fills = self._load_existing_order_fills(
             account_id,
             normalized_mode,
+            hour_ts_utc,
+        )
+        existing_position_lots = self._load_existing_position_lots(
+            account_id,
+            normalized_mode,
+            hour_ts_utc,
+        )
+        existing_executed_trades = self._load_existing_executed_trades(
+            account_id,
+            normalized_mode,
+            hour_ts_utc,
         )
 
         context = ExecutionContext(
@@ -1371,9 +1379,9 @@ class DeterministicContextBuilder:
 
     def _load_existing_order_fills(
         self,
-        run_id: UUID,
         account_id: int,
         run_mode: str,
+        hour_ts_utc: datetime,
     ) -> tuple[ExistingOrderFillState, ...]:
         rows = self._db.fetch_all(
             """
@@ -1393,15 +1401,15 @@ class DeterministicContextBuilder:
                 slippage_cost,
                 row_hash
             FROM order_fill
-            WHERE run_id = :run_id
-              AND account_id = :account_id
+            WHERE account_id = :account_id
               AND run_mode = :run_mode
+              AND origin_hour_ts_utc < :hour_ts_utc
             ORDER BY fill_ts_utc ASC, fill_id ASC
             """,
             {
-                "run_id": str(run_id),
                 "account_id": account_id,
                 "run_mode": run_mode,
+                "hour_ts_utc": hour_ts_utc,
             },
         )
         result: list[ExistingOrderFillState] = []
@@ -1428,9 +1436,9 @@ class DeterministicContextBuilder:
 
     def _load_existing_position_lots(
         self,
-        run_id: UUID,
         account_id: int,
         run_mode: str,
+        hour_ts_utc: datetime,
     ) -> tuple[ExistingPositionLotState, ...]:
         rows = self._db.fetch_all(
             """
@@ -1448,15 +1456,15 @@ class DeterministicContextBuilder:
                 remaining_qty,
                 row_hash
             FROM position_lot
-            WHERE run_id = :run_id
-              AND account_id = :account_id
+            WHERE account_id = :account_id
               AND run_mode = :run_mode
+              AND origin_hour_ts_utc < :hour_ts_utc
             ORDER BY open_ts_utc ASC, lot_id ASC
             """,
             {
-                "run_id": str(run_id),
                 "account_id": account_id,
                 "run_mode": run_mode,
+                "hour_ts_utc": hour_ts_utc,
             },
         )
         result: list[ExistingPositionLotState] = []
@@ -1481,9 +1489,9 @@ class DeterministicContextBuilder:
 
     def _load_existing_executed_trades(
         self,
-        run_id: UUID,
         account_id: int,
         run_mode: str,
+        hour_ts_utc: datetime,
     ) -> tuple[ExistingExecutedTradeState, ...]:
         rows = self._db.fetch_all(
             """
@@ -1497,15 +1505,15 @@ class DeterministicContextBuilder:
                 quantity,
                 row_hash
             FROM executed_trade
-            WHERE run_id = :run_id
-              AND account_id = :account_id
+            WHERE account_id = :account_id
               AND run_mode = :run_mode
+              AND origin_hour_ts_utc < :hour_ts_utc
             ORDER BY exit_ts_utc ASC, trade_id ASC
             """,
             {
-                "run_id": str(run_id),
                 "account_id": account_id,
                 "run_mode": run_mode,
+                "hour_ts_utc": hour_ts_utc,
             },
         )
         result: list[ExistingExecutedTradeState] = []

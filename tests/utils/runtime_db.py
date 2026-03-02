@@ -690,6 +690,7 @@ def preload_open_lot_for_sell_path(
     price: Decimal = Decimal("100.000000000000000000"),
 ) -> PreloadedLotIds:
     """Insert deterministic BUY signal/order/fill/lot rows for SELL-path integration tests."""
+    preload_run_id = deterministic_uuid(f"preload-run-{seed}")
     signal_id = deterministic_uuid(f"preload-signal-{seed}")
     order_id = deterministic_uuid(f"preload-order-{seed}")
     fill_id = deterministic_uuid(f"preload-fill-{seed}")
@@ -722,7 +723,169 @@ def preload_open_lot_for_sell_path(
     if cost_profile_row is None:
         raise RuntimeError("No active cost_profile found for lot preloading.")
     cost_profile_id = int(cost_profile_row["cost_profile_id"])
+    preload_origin_hour = fixture.hour_ts_utc - timedelta(hours=1)
 
+    origin_run_context = db.fetch_one(
+        """
+        SELECT 1
+        FROM run_context
+        WHERE run_id = :run_id
+          AND account_id = :account_id
+          AND run_mode = 'LIVE'
+          AND hour_ts_utc = :hour_ts_utc
+          AND origin_hour_ts_utc = :origin_hour_ts_utc
+        LIMIT 1
+        """,
+        {
+            "run_id": str(preload_run_id),
+            "account_id": fixture.account_id,
+            "hour_ts_utc": preload_origin_hour,
+            "origin_hour_ts_utc": preload_origin_hour,
+        },
+    )
+    if origin_run_context is None:
+        db.execute(
+            """
+            INSERT INTO run_context (
+                run_id, account_id, run_mode, hour_ts_utc, cycle_seq, code_version_sha,
+                config_hash, data_snapshot_hash, random_seed, backtest_run_id,
+                started_at_utc, completed_at_utc, status, origin_hour_ts_utc,
+                run_seed_hash, context_hash, replay_root_hash
+            ) VALUES (
+                :run_id, :account_id, 'LIVE', :hour_ts_utc, 0, :code_version_sha,
+                :config_hash, :data_snapshot_hash, 97, NULL,
+                :started_at_utc, :completed_at_utc, 'COMPLETED', :origin_hour_ts_utc,
+                :run_seed_hash, :context_hash, :replay_root_hash
+            )
+            """,
+            {
+                "run_id": str(preload_run_id),
+                "account_id": fixture.account_id,
+                "hour_ts_utc": preload_origin_hour,
+                "code_version_sha": "a" * 40,
+                "config_hash": "b" * 64,
+                "data_snapshot_hash": "c" * 64,
+                "started_at_utc": preload_origin_hour - timedelta(minutes=5),
+                "completed_at_utc": preload_origin_hour,
+                "origin_hour_ts_utc": preload_origin_hour,
+                "run_seed_hash": "d" * 64,
+                "context_hash": "e" * 64,
+                "replay_root_hash": "f" * 64,
+            },
+        )
+    historical_manifest = db.fetch_one(
+        """
+        SELECT 1
+        FROM replay_manifest
+        WHERE run_id = :run_id
+          AND account_id = :account_id
+          AND run_mode = 'LIVE'
+          AND origin_hour_ts_utc = :origin_hour_ts_utc
+        LIMIT 1
+        """,
+        {
+            "run_id": str(preload_run_id),
+            "account_id": fixture.account_id,
+            "origin_hour_ts_utc": preload_origin_hour,
+        },
+    )
+    if historical_manifest is None:
+        db.execute(
+            """
+            INSERT INTO replay_manifest (
+                run_id, account_id, run_mode, origin_hour_ts_utc,
+                run_seed_hash, replay_root_hash, authoritative_row_count, generated_at_utc
+            ) VALUES (
+                :run_id, :account_id, 'LIVE', :origin_hour_ts_utc,
+                :run_seed_hash, :replay_root_hash, :authoritative_row_count, :generated_at_utc
+            )
+            """,
+            {
+                "run_id": str(preload_run_id),
+                "account_id": fixture.account_id,
+                "origin_hour_ts_utc": preload_origin_hour,
+                "run_seed_hash": "d" * 64,
+                "replay_root_hash": "f" * 64,
+                "authoritative_row_count": 0,
+                "generated_at_utc": preload_origin_hour,
+            },
+        )
+    historical_portfolio_state = db.fetch_one(
+        """
+        SELECT 1
+        FROM portfolio_hourly_state
+        WHERE run_mode = 'LIVE'
+          AND account_id = :account_id
+          AND hour_ts_utc = :hour_ts_utc
+        LIMIT 1
+        """,
+        {
+            "account_id": fixture.account_id,
+            "hour_ts_utc": preload_origin_hour,
+        },
+    )
+    if historical_portfolio_state is None:
+        db.execute(
+            """
+            INSERT INTO portfolio_hourly_state (
+                run_mode, account_id, hour_ts_utc, cash_balance, market_value, portfolio_value,
+                peak_portfolio_value, drawdown_pct, total_exposure_pct, open_position_count,
+                halted, source_run_id, reconciliation_hash, row_hash
+            ) VALUES (
+                'LIVE', :account_id, :hour_ts_utc, 10000.000000000000000000,
+                100.000000000000000000, 10100.000000000000000000, 10100.000000000000000000,
+                0.0000000000, 0.0100000000, 1, FALSE, :source_run_id, :reconciliation_hash, :row_hash
+            )
+            """,
+            {
+                "account_id": fixture.account_id,
+                "hour_ts_utc": preload_origin_hour,
+                "source_run_id": str(preload_run_id),
+                "reconciliation_hash": "1" * 64,
+                "row_hash": "2" * 64,
+            },
+        )
+    historical_risk_state = db.fetch_one(
+        """
+        SELECT 1
+        FROM risk_hourly_state
+        WHERE run_mode = 'LIVE'
+          AND account_id = :account_id
+          AND hour_ts_utc = :hour_ts_utc
+          AND source_run_id = :source_run_id
+        LIMIT 1
+        """,
+        {
+            "account_id": fixture.account_id,
+            "hour_ts_utc": preload_origin_hour,
+            "source_run_id": str(preload_run_id),
+        },
+    )
+    if historical_risk_state is None:
+        db.execute(
+            """
+            INSERT INTO risk_hourly_state (
+                run_mode, account_id, hour_ts_utc, portfolio_value, peak_portfolio_value,
+                drawdown_pct, drawdown_tier, base_risk_fraction, max_concurrent_positions,
+                max_total_exposure_pct, max_cluster_exposure_pct, halt_new_entries,
+                kill_switch_active, kill_switch_reason, requires_manual_review,
+                evaluated_at_utc, source_run_id, state_hash, row_hash
+            ) VALUES (
+                'LIVE', :account_id, :hour_ts_utc, 10100.000000000000000000,
+                10100.000000000000000000, 0.0000000000, 'NORMAL', 0.0200000000, 10,
+                0.2000000000, 0.0800000000, FALSE, FALSE, NULL, FALSE,
+                :evaluated_at_utc, :source_run_id, :state_hash, :row_hash
+            )
+            """,
+            {
+                "account_id": fixture.account_id,
+                "hour_ts_utc": preload_origin_hour,
+                "evaluated_at_utc": preload_origin_hour,
+                "source_run_id": str(preload_run_id),
+                "state_hash": "3" * 64,
+                "row_hash": "4" * 64,
+            },
+        )
     db.execute(
         """
         INSERT INTO trade_signal (
@@ -741,19 +904,64 @@ def preload_open_lot_for_sell_path(
         """,
         {
             "signal_id": str(signal_id),
-            "run_id": str(fixture.run_id),
+            "run_id": str(preload_run_id),
             "account_id": fixture.account_id,
             "asset_id": fixture.asset_id,
-            "hour_ts_utc": fixture.hour_ts_utc,
+            "hour_ts_utc": preload_origin_hour,
             "assumed_fee_rate": fee_rate,
             "assumed_slippage_rate": slippage_rate,
             "target_position_notional": notional,
-            "risk_state_hour_ts_utc": fixture.hour_ts_utc,
+            "risk_state_hour_ts_utc": preload_origin_hour,
             "decision_hash": "7" * 64,
-            "risk_state_run_id": str(fixture.run_id),
+            "risk_state_run_id": str(preload_run_id),
             "cluster_membership_id": fixture.cluster_membership_id,
             "upstream_hash": "8" * 64,
             "row_hash": row_hash_signal,
+            },
+        )
+
+    preload_risk_state_row = db.fetch_one(
+        """
+        SELECT row_hash
+        FROM risk_hourly_state
+        WHERE run_mode = 'LIVE'
+          AND account_id = :account_id
+          AND hour_ts_utc = :hour_ts_utc
+          AND source_run_id = :source_run_id
+        """,
+        {
+            "account_id": fixture.account_id,
+            "hour_ts_utc": preload_origin_hour,
+            "source_run_id": str(preload_run_id),
+        },
+    )
+    if preload_risk_state_row is None:
+        raise RuntimeError("Missing historical risk_hourly_state row for preloaded lot decision trace.")
+
+    preload_risk_event_id = deterministic_uuid(f"preload-historical-trace-{seed}")
+    db.execute(
+        """
+        INSERT INTO risk_event (
+            risk_event_id, run_id, run_mode, account_id, event_ts_utc, hour_ts_utc,
+            event_type, severity, reason_code, details, related_state_hour_ts_utc,
+            origin_hour_ts_utc, parent_state_hash, row_hash
+        ) VALUES (
+            :risk_event_id, :run_id, 'LIVE', :account_id, :event_ts_utc, :hour_ts_utc,
+            'DECISION_TRACE', 'LOW', 'VOLATILITY_SIZED', CAST(:details AS jsonb),
+            :related_state_hour_ts_utc, :origin_hour_ts_utc, :parent_state_hash, :row_hash
+        )
+        """,
+        {
+            "risk_event_id": str(preload_risk_event_id),
+            "run_id": str(preload_run_id),
+            "account_id": fixture.account_id,
+            "event_ts_utc": preload_origin_hour,
+            "hour_ts_utc": preload_origin_hour,
+            "details": '{"detail":"preloaded historical decision trace"}',
+            "related_state_hour_ts_utc": preload_origin_hour,
+            "origin_hour_ts_utc": preload_origin_hour,
+            "parent_state_hash": str(preload_risk_state_row["row_hash"]),
+            "row_hash": "8" * 64,
         },
     )
 
@@ -776,17 +984,17 @@ def preload_open_lot_for_sell_path(
         {
             "order_id": str(order_id),
             "signal_id": str(signal_id),
-            "run_id": str(fixture.run_id),
+            "run_id": str(preload_run_id),
             "account_id": fixture.account_id,
             "asset_id": fixture.asset_id,
             "client_order_id": f"preload-{order_id.hex[:16]}",
-            "request_ts_utc": fixture.hour_ts_utc,
-            "hour_ts_utc": fixture.hour_ts_utc,
+            "request_ts_utc": preload_origin_hour,
+            "hour_ts_utc": preload_origin_hour,
             "requested_qty": quantity,
             "requested_notional": notional,
             "cost_profile_id": cost_profile_id,
-            "origin_hour_ts_utc": fixture.hour_ts_utc,
-            "risk_state_run_id": str(fixture.run_id),
+            "origin_hour_ts_utc": preload_origin_hour,
+            "risk_state_run_id": str(preload_run_id),
             "cluster_membership_id": fixture.cluster_membership_id,
             "parent_signal_hash": row_hash_signal,
             "row_hash": row_hash_order,
@@ -810,19 +1018,19 @@ def preload_open_lot_for_sell_path(
         {
             "fill_id": str(fill_id),
             "order_id": str(order_id),
-            "run_id": str(fixture.run_id),
+            "run_id": str(preload_run_id),
             "account_id": fixture.account_id,
             "asset_id": fixture.asset_id,
             "exchange_trade_id": f"preload-{fill_id.hex[:20]}",
-            "fill_ts_utc": fixture.hour_ts_utc,
-            "hour_ts_utc": fixture.hour_ts_utc,
+            "fill_ts_utc": preload_origin_hour,
+            "hour_ts_utc": preload_origin_hour,
             "fill_price": price,
             "fill_qty": quantity,
             "fill_notional": notional,
             "fee_paid": fee_paid,
             "fee_rate": fee_rate,
             "realized_slippage_rate": slippage_rate,
-            "origin_hour_ts_utc": fixture.hour_ts_utc,
+            "origin_hour_ts_utc": preload_origin_hour,
             "slippage_cost": slippage_cost,
             "parent_order_hash": row_hash_order,
             "row_hash": row_hash_fill,
@@ -844,64 +1052,19 @@ def preload_open_lot_for_sell_path(
         {
             "lot_id": str(lot_id),
             "open_fill_id": str(fill_id),
-            "run_id": str(fixture.run_id),
+            "run_id": str(preload_run_id),
             "account_id": fixture.account_id,
             "asset_id": fixture.asset_id,
-            "hour_ts_utc": fixture.hour_ts_utc,
-            "open_ts_utc": fixture.hour_ts_utc,
+            "hour_ts_utc": preload_origin_hour,
+            "open_ts_utc": preload_origin_hour,
             "open_price": price,
             "open_qty": quantity,
             "open_notional": notional,
             "open_fee": fee_paid,
             "remaining_qty": quantity,
-            "origin_hour_ts_utc": fixture.hour_ts_utc,
+            "origin_hour_ts_utc": preload_origin_hour,
             "parent_fill_hash": row_hash_fill,
             "row_hash": row_hash_lot,
-        },
-    )
-
-    risk_state_row = db.fetch_one(
-        """
-        SELECT row_hash
-        FROM risk_hourly_state
-        WHERE run_mode = 'LIVE'
-          AND account_id = :account_id
-          AND hour_ts_utc = :hour_ts_utc
-          AND source_run_id = :source_run_id
-        """,
-        {
-            "account_id": fixture.account_id,
-            "hour_ts_utc": fixture.hour_ts_utc,
-            "source_run_id": str(fixture.run_id),
-        },
-    )
-    if risk_state_row is None:
-        raise RuntimeError("Missing risk_hourly_state row for preloaded lot decision trace.")
-
-    risk_event_id = deterministic_uuid(f"preload-trace-{seed}")
-    db.execute(
-        """
-        INSERT INTO risk_event (
-            risk_event_id, run_id, run_mode, account_id, event_ts_utc, hour_ts_utc,
-            event_type, severity, reason_code, details, related_state_hour_ts_utc,
-            origin_hour_ts_utc, parent_state_hash, row_hash
-        ) VALUES (
-            :risk_event_id, :run_id, 'LIVE', :account_id, :event_ts_utc, :hour_ts_utc,
-            'DECISION_TRACE', 'LOW', 'VOLATILITY_SIZED', CAST(:details AS jsonb),
-            :related_state_hour_ts_utc, :origin_hour_ts_utc, :parent_state_hash, :row_hash
-        )
-        """,
-        {
-            "risk_event_id": str(risk_event_id),
-            "run_id": str(fixture.run_id),
-            "account_id": fixture.account_id,
-            "event_ts_utc": fixture.hour_ts_utc,
-            "hour_ts_utc": fixture.hour_ts_utc,
-            "details": '{"detail":"preloaded decision trace"}',
-            "related_state_hour_ts_utc": fixture.hour_ts_utc,
-            "origin_hour_ts_utc": fixture.hour_ts_utc,
-            "parent_state_hash": str(risk_state_row["row_hash"]),
-            "row_hash": "7" * 64,
         },
     )
 
